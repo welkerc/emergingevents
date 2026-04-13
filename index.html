@@ -200,11 +200,11 @@
               <tr>
                 <th class="px-4 py-2 text-left text-sm font-medium text-gray-700 dark:text-gray-300 cursor-pointer" data-sort="date">Date ↕</th>
                 <th class="px-4 py-2 text-left text-sm font-medium text-gray-700 dark:text-gray-300 cursor-pointer" data-sort="title">Title ↕</th>
-                <th class="px-4 py-2 text-left text-sm font-medium text-gray-700 dark:text-gray-300">Category</th>
-                <th class="px-4 py-2 text-left text-sm font-medium text-gray-700 dark:text-gray-300">Source</th>
-                <th class="px-4 py-2 text-left text-sm font-medium text-gray-700 dark:text-gray-300">Region</th>
-                <th class="px-4 py-2 text-left text-sm font-medium text-gray-700 dark:text-gray-300">Magnitude/Severity</th>
-                <th class="px-4 py-2 text-left text-sm font-medium text-gray-700 dark:text-gray-300">Status</th>
+                <th class="px-4 py-2 text-left text-sm font-medium text-gray-700 dark:text-gray-300 cursor-pointer" data-sort="category">Category ↕</th>
+                <th class="px-4 py-2 text-left text-sm font-medium text-gray-700 dark:text-gray-300 cursor-pointer" data-sort="source">Source ↕</th>
+                <th class="px-4 py-2 text-left text-sm font-medium text-gray-700 dark:text-gray-300 cursor-pointer" data-sort="region">Region ↕</th>
+                <th class="px-4 py-2 text-left text-sm font-medium text-gray-700 dark:text-gray-300 cursor-pointer" data-sort="magnitude">Magnitude/Severity ↕</th>
+                <th class="px-4 py-2 text-left text-sm font-medium text-gray-700 dark:text-gray-300 cursor-pointer" data-sort="status">Status ↕</th>
                 <th class="px-4 py-2 text-left text-sm font-medium text-gray-700 dark:text-gray-300">News</th>
               </tr>
             </thead>
@@ -1186,6 +1186,10 @@
         const sourceLabel = event.source === 'nasa' ? 'NASA EONET' : event.source === 'fema' ? 'FEMA Declaration' : 'NWS Alert';
         const regionName = FEMA_REGIONS[event.region]?.name || 'Unknown Region';
         
+        const newsSearchTitle = event.source === 'nasa' 
+          ? event.title 
+          : event.title.replace(/^(DR|EM|FM)\s*-\s*/, '').replace(/[A-Z]{2}$/, '').trim();
+        
         const popupContent = `
           <div class="p-2">
             <h3 class="font-bold text-sm">${event.title}</h3>
@@ -1196,12 +1200,10 @@
             ${event.source === 'nws' && event.severity ? `<p class="text-xs font-bold">Severity: ${event.severity}</p>` : ''}
             <p class="text-xs">Status: ${event.status}</p>
             <p class="text-xs">${event.date ? new Date(event.date).toLocaleDateString() : '-'}</p>
-            ${event.source === 'nasa' ? `
-              <div class="flex gap-2 mt-2">
+            <div class="flex gap-2 mt-2">
               <button onclick="focusEventOnMap(${event.lat}, ${event.lon})" class="text-xs bg-blue-600 text-white px-2 py-1 rounded hover:bg-blue-700">Map</button>
-              <button onclick="showEventNewsByTitle('${event.title.replace(/'/g, "\\'")}')" class="text-xs bg-green-600 text-white px-2 py-1 rounded hover:bg-green-700">News</button>
+              <button onclick="showEventNewsByTitle('${newsSearchTitle.replace(/'/g, "\\'")}')" class="text-xs bg-green-600 text-white px-2 py-1 rounded hover:bg-green-700">News</button>
             </div>
-            ` : ''}
           </div>
         `;
         
@@ -1215,6 +1217,11 @@
       eventsTableBody.innerHTML = filteredEvents.map(event => {
         const color = SOURCE_COLORS[event.source] || CATEGORY_COLORS[event.category] || '#6b7280';
         const sourceLabel = event.source === 'nasa' ? 'NASA' : event.source === 'fema' ? 'FEMA' : event.source === 'nws' ? 'NWS' : '-';
+        
+        // For non-NASA events, create a search term from title
+        const newsSearchTitle = event.source === 'nasa' 
+          ? event.title 
+          : event.title.replace(/^(DR|EM|FM)\s*-\s*/, '').replace(/[A-Z]{2}$/, '').trim();
         
         return `
         <tr class="border-b dark:border-dark-border hover:bg-gray-50 dark:hover:bg-dark-border cursor-pointer" onclick="focusEventOnMap(${event.lat}, ${event.lon})">
@@ -1233,11 +1240,9 @@
               ${event.status}
             </span>
           </td>
-          ${event.source === 'nasa' ? `
           <td class="px-4 py-2 text-sm">
-            <button onclick="event.stopPropagation(); showEventNewsByTitle('${event.title.replace(/'/g, "\\'")}')" class="text-xs bg-green-600 text-white px-2 py-1 rounded hover:bg-green-700">News</button>
+            <button onclick="event.stopPropagation(); showEventNewsByTitle('${newsSearchTitle.replace(/'/g, "\\'")}')" class="text-xs bg-green-600 text-white px-2 py-1 rounded hover:bg-green-700">News</button>
           </td>
-          ` : '<td class="px-4 py-2 text-sm">-</td>'}
         </tr>
       `}).join('');
     }
@@ -1603,14 +1608,49 @@
     });
 
     // Sort handlers for table
+    let sortDirection = {};
     document.querySelectorAll('[data-sort]').forEach(th => {
       th.addEventListener('click', () => {
         const key = th.dataset.sort;
+        const direction = sortDirection[key] === 'asc' ? 'desc' : 'asc';
+        sortDirection[key] = direction;
+        
+        // Update arrow indicators
+        document.querySelectorAll('[data-sort]').forEach(header => {
+          header.textContent = header.textContent.replace(' ↑', '').replace(' ↓', '');
+          if (header.dataset.sort === key) {
+            header.textContent += direction === 'asc' ? ' ↑' : ' ↓';
+          }
+        });
+        
         filteredEvents.sort((a, b) => {
-          if (key === 'date') return new Date(b.date) - new Date(a.date);
-          if (key === 'title') return a.title.localeCompare(b.title);
+          let valA = a[key];
+          let valB = b[key];
+          
+          // Handle null/undefined
+          if (valA == null) return direction === 'asc' ? 1 : -1;
+          if (valB == null) return direction === 'asc' ? -1 : 1;
+          
+          // Handle different types
+          if (key === 'date') {
+            valA = new Date(valA).getTime();
+            valB = new Date(valB).getTime();
+          } else if (key === 'magnitude') {
+            valA = parseFloat(valA) || 0;
+            valB = parseFloat(valB) || 0;
+          } else if (key === 'region') {
+            valA = FEMA_REGIONS[valA]?.name || '';
+            valB = FEMA_REGIONS[valB]?.name || '';
+          } else {
+            valA = String(valA).toLowerCase();
+            valB = String(valB).toLowerCase();
+          }
+          
+          if (valA < valB) return direction === 'asc' ? -1 : 1;
+          if (valA > valB) return direction === 'asc' ? 1 : -1;
           return 0;
         });
+        
         updateList();
       });
     });
