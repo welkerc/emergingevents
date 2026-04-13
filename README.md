@@ -1,6 +1,6 @@
 # Regional Emerging Events Dashboard
 
-A web-based dashboard for viewing natural disaster events from NASA's EONET API, organized by US FEMA regions.
+A web-based dashboard for viewing natural disaster events from NASA's EONET API and FEMA Disaster Declarations, organized by US FEMA regions. Built for ITDRC (Information Technology Disaster Resource Center) to support disaster response operations.
 
 ## Tech Stack
 
@@ -10,6 +10,7 @@ A web-based dashboard for viewing natural disaster events from NASA's EONET API,
 - **Map Tiles**: CartoDB (dark/light themes)
 - **APIs**:
   - NASA EONET API (`https://eonet.gsfc.nasa.gov/api/v3/events`)
+  - FEMA OpenFEMA API (`https://www.fema.gov/api/open/v2/DisasterDeclarationsSummaries`)
   - GNews API (`https://gnews.io/api/v4/search`)
   - CORS Proxy: AllOrigins (`https://api.allorigins.win/raw?url=`)
 
@@ -23,6 +24,8 @@ A web-based dashboard for viewing natural disaster events from NASA's EONET API,
 - **Map View** - Interactive map with color-coded markers by category
 - **List View** - Sortable table with event details
 - **Dashboard** - Statistics with drill-down filtering
+- **FEMA Declarations View** - View official FEMA disaster declarations (last 60 days)
+- **FEMA Overlay** - Toggle to show FEMA declarations as overlay on map
 - **Dark Mode** - Toggle between light and dark themes (defaults to dark)
 - **News Integration** - Fetch related news articles for each event
 - **Auto-refresh** - Configurable automatic data refresh (5/15/30 minutes)
@@ -33,6 +36,17 @@ A web-based dashboard for viewing natural disaster events from NASA's EONET API,
 1. Open `index.html` in a web browser
 2. The app will automatically fetch events from NASA's EONET API
 3. Click "Set News API" to configure your GNews API key (free at https://gnews.io)
+4. Click "FEMA Declarations" view to see official disaster declarations
+
+## FEMA Declarations
+
+The FEMA Declarations view shows:
+- **Declaration Types**: DR (Major Disaster), EM (Emergency), FM (Fire Management Assistance)
+- **By Type Stats**: Count of each declaration type in the last 60 days
+- **By Region Stats**: Declarations grouped by FEMA region (clickable to filter)
+- **Declarations Table**: Recent declarations with details
+
+The FEMA Overlay checkbox on the map view shows colored circles on states with active declarations.
 
 ## News API Setup
 

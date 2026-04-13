@@ -155,8 +155,15 @@
           <button id="view-dashboard" class="bg-gray-200 dark:bg-dark-border dark:text-white text-gray-700 px-4 py-2 rounded hover:bg-gray-300">
             Dashboard
           </button>
+          <button id="view-fema" class="bg-gray-200 dark:bg-dark-border dark:text-white text-gray-700 px-4 py-2 rounded hover:bg-gray-300">
+            FEMA Declarations
+          </button>
         </div>
         <div class="flex gap-2">
+          <label class="flex items-center gap-2 text-sm dark:text-white">
+            <input type="checkbox" id="fema-overlay-toggle" class="w-4 h-4">
+            FEMA Overlay
+          </label>
           <button id="export-csv" class="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700">
             Export CSV
           </button>
@@ -198,11 +205,62 @@
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
           <div class="bg-white dark:bg-dark-card rounded-lg shadow p-4">
             <h3 class="text-lg font-bold mb-4 dark:text-white">Events by Region</h3>
-            <canvas id="region-chart"></canvas>
+            <div id="region-list"></div>
           </div>
           <div class="bg-white dark:bg-dark-card rounded-lg shadow p-4">
             <h3 class="text-lg font-bold mb-4 dark:text-white">Events by Category</h3>
-            <canvas id="category-chart"></canvas>
+            <div id="category-list"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- FEMA Declarations View -->
+      <div id="fema-view" class="hidden">
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+          <div class="bg-white dark:bg-dark-card rounded-lg shadow p-4">
+            <h3 class="text-lg font-bold mb-4 dark:text-white">Declaration Types</h3>
+            <div class="space-y-2">
+              <div class="flex items-center gap-2">
+                <span class="w-4 h-4 rounded bg-red-500"></span>
+                <span class="text-sm dark:text-gray-300">DR - Major Disaster</span>
+              </div>
+              <div class="flex items-center gap-2">
+                <span class="w-4 h-4 rounded bg-yellow-500"></span>
+                <span class="text-sm dark:text-gray-300">EM - Emergency</span>
+              </div>
+              <div class="flex items-center gap-2">
+                <span class="w-4 h-4 rounded bg-orange-500"></span>
+                <span class="text-sm dark:text-gray-300">FM - Fire Management</span>
+              </div>
+            </div>
+          </div>
+          <div class="bg-white dark:bg-dark-card rounded-lg shadow p-4">
+            <h3 class="text-lg font-bold mb-4 dark:text-white">By Type (Last 60 Days)</h3>
+            <div id="fema-type-stats" class="space-y-2"></div>
+          </div>
+          <div class="bg-white dark:bg-dark-card rounded-lg shadow p-4">
+            <h3 class="text-lg font-bold mb-4 dark:text-white">By Region</h3>
+            <div id="fema-region-stats" class="space-y-2"></div>
+          </div>
+        </div>
+        <div class="bg-white dark:bg-dark-card rounded-lg shadow p-4">
+          <h3 class="text-lg font-bold mb-4 dark:text-white">Recent Declarations</h3>
+          <div class="overflow-x-auto">
+            <table class="min-w-full">
+              <thead class="bg-gray-50 dark:bg-dark-border">
+                <tr>
+                  <th class="px-4 py-2 text-left text-sm font-medium text-gray-700 dark:text-gray-300">Declaration</th>
+                  <th class="px-4 py-2 text-left text-sm font-medium text-gray-700 dark:text-gray-300">State</th>
+                  <th class="px-4 py-2 text-left text-sm font-medium text-gray-700 dark:text-gray-300">Type</th>
+                  <th class="px-4 py-2 text-left text-sm font-medium text-gray-700 dark:text-gray-300">Incident</th>
+                  <th class="px-4 py-2 text-left text-sm font-medium text-gray-700 dark:text-gray-300">Date</th>
+                  <th class="px-4 py-2 text-left text-sm font-medium text-gray-700 dark:text-gray-300">Area</th>
+                </tr>
+              </thead>
+              <tbody id="fema-table-body">
+                <!-- Populated by JS -->
+              </tbody>
+            </table>
           </div>
         </div>
       </div>
@@ -268,12 +326,200 @@
     // App state
     let events = [];
     let filteredEvents = [];
+    let femaDeclarations = [];
     let map = null;
     let markersLayer = null;
+    let femaOverlayLayer = null;
     let currentView = 'map';
     let autoRefreshInterval = null;
     let selectedEvent = null;
     let newsCache = {};
+    let femaOverlayEnabled = false;
+
+    // State to FEMA region mapping
+    const STATE_TO_FEMA_REGION = {
+      'AL': 4, 'AK': 10, 'AZ': 9, 'AR': 6, 'CA': 9, 'CO': 8, 'CT': 1, 'DE': 3,
+      'FL': 4, 'GA': 4, 'HI': 9, 'ID': 10, 'IL': 5, 'IN': 5, 'IA': 7, 'KS': 7,
+      'KY': 4, 'LA': 6, 'ME': 1, 'MD': 3, 'MA': 1, 'MI': 5, 'MN': 5, 'MS': 4,
+      'MO': 7, 'MT': 8, 'NE': 7, 'NV': 9, 'NH': 1, 'NJ': 2, 'NM': 6, 'NY': 2,
+      'NC': 4, 'ND': 8, 'OH': 5, 'OK': 6, 'OR': 10, 'PA': 3, 'RI': 1, 'SC': 4,
+      'SD': 8, 'TN': 4, 'TX': 6, 'UT': 8, 'VT': 1, 'VA': 3, 'WA': 10, 'WV': 3,
+      'WI': 5, 'WY': 8, 'DC': 3, 'PR': 2, 'VI': 2, 'GU': 9, 'AS': 9, 'MP': 9
+    };
+
+    // Declaration type colors
+    const DECLARATION_COLORS = {
+      'DR': '#ef4444',  // Major Disaster - Red
+      'EM': '#eab308',  // Emergency - Yellow
+      'FM': '#f97316'   // Fire Management - Orange
+    };
+
+    // Fetch FEMA Disaster Declarations
+    async function fetchFemaDeclarations() {
+      showLoading(true);
+      try {
+        const sixtyDaysAgo = new Date();
+        sixtyDaysAgo.setDate(sixtyDaysAgo.getDate() - 60);
+        const dateStr = sixtyDaysAgo.toISOString().split('T')[0];
+        
+        const url = `https://www.fema.gov/api/open/v2/DisasterDeclarationsSummaries?$filter=declarationDate%20ge%20'${dateStr}'&$orderby=declarationDate%20desc&$top=500`;
+        
+        const response = await fetch(url);
+        const data = await response.json();
+        
+        if (data.DisasterDeclarationsSummaries) {
+          femaDeclarations = data.DisasterDeclarationsSummaries.map(d => ({
+            ...d,
+            femaRegion: STATE_TO_FEMA_REGION[d.state] || null
+          }));
+          
+          updateFemaView();
+          console.log('FEMA Declarations loaded:', femaDeclarations.length);
+        }
+      } catch (error) {
+        console.error('Error fetching FEMA declarations:', error);
+      } finally {
+        showLoading(false);
+      }
+    }
+
+    // Update FEMA declarations view
+    function updateFemaView() {
+      const typeStats = {};
+      const regionStats = {};
+      
+      femaDeclarations.forEach(d => {
+        typeStats[d.declarationType] = (typeStats[d.declarationType] || 0) + 1;
+        if (d.femaRegion) {
+          regionStats[d.femaRegion] = (regionStats[d.femaRegion] || 0) + 1;
+        }
+      });
+
+      // Update type stats
+      const typeStatsEl = document.getElementById('fema-type-stats');
+      typeStatsEl.innerHTML = Object.entries(typeStats).map(([type, count]) => `
+        <div class="flex justify-between items-center p-2 border-b dark:border-dark-border">
+          <span class="flex items-center gap-2">
+            <span class="w-3 h-3 rounded-full" style="background-color: ${DECLARATION_COLORS[type]}"></span>
+            <span class="text-sm dark:text-gray-300">${type === 'DR' ? 'Disaster' : type === 'EM' ? 'Emergency' : 'Fire Mgmt'}</span>
+          </span>
+          <span class="font-bold dark:text-white">${count}</span>
+        </div>
+      `).join('');
+
+      // Update region stats
+      const regionStatsEl = document.getElementById('fema-region-stats');
+      regionStatsEl.innerHTML = Object.entries(regionStats)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 5)
+        .map(([region, count]) => `
+          <div class="flex justify-between items-center p-2 border-b dark:border-dark-border cursor-pointer hover:bg-gray-50 dark:hover:bg-dark-border" onclick="filterByRegion(${region})">
+            <span class="text-sm dark:text-gray-300">${FEMA_REGIONS[region]?.name || `Region ${region}`}</span>
+            <span class="font-bold dark:text-white">${count}</span>
+          </div>
+        `).join('');
+
+      // Update table
+      const tableBody = document.getElementById('fema-table-body');
+      tableBody.innerHTML = femaDeclarations.slice(0, 100).map(d => `
+        <tr class="border-b dark:border-dark-border hover:bg-gray-50 dark:hover:bg-dark-border">
+          <td class="px-4 py-2 text-sm font-medium dark:text-white">${d.femaDeclarationString}</td>
+          <td class="px-4 py-2 text-sm dark:text-gray-300">${d.state}</td>
+          <td class="px-4 py-2 text-sm">
+            <span class="px-2 py-1 rounded text-xs text-white" style="background-color: ${DECLARATION_COLORS[d.declarationType] || '#6b7280'}">
+              ${d.declarationType}
+            </span>
+          </td>
+          <td class="px-4 py-2 text-sm dark:text-gray-300">${d.incidentType || '-'}</td>
+          <td class="px-4 py-2 text-sm dark:text-gray-300">${d.declarationDate ? new Date(d.declarationDate).toLocaleDateString() : '-'}</td>
+          <td class="px-4 py-2 text-sm dark:text-gray-300">${d.designatedArea || '-'}</td>
+        </tr>
+      `).join('');
+    }
+
+    // Toggle FEMA overlay on map
+    function toggleFemaOverlay() {
+      femaOverlayEnabled = !femaOverlayEnabled;
+      
+      if (!map) return;
+      
+      if (femaOverlayEnabled) {
+        if (!femaOverlayLayer) {
+          femaOverlayLayer = L.layerGroup().addTo(map);
+        }
+        
+        // Group declarations by state
+        const stateDeclarations = {};
+        femaDeclarations.forEach(d => {
+          if (!stateDeclarations[d.state]) {
+            stateDeclarations[d.state] = [];
+          }
+          stateDeclarations[d.state].push(d);
+        });
+        
+        // Add colored circles for each state with declarations
+        Object.entries(stateDeclarations).forEach(([state, declarations]) => {
+          const stateCenter = STATE_CENTERS[state];
+          if (stateCenter) {
+            const dominantType = declarations.reduce((acc, d) => {
+              acc[d.declarationType] = (acc[d.declarationType] || 0) + 1;
+              return acc;
+            }, {});
+            
+            const topType = Object.entries(dominantType).sort((a, b) => b[1] - a[1])[0][0];
+            
+            const circle = L.circleMarker([stateCenter.lat, stateCenter.lon], {
+              radius: Math.min(8 + declarations.length * 2, 20),
+              fillColor: DECLARATION_COLORS[topType] || '#6b7280',
+              color: '#fff',
+              weight: 2,
+              opacity: 1,
+              fillOpacity: 0.7
+            });
+            
+            const popupContent = `
+              <div class="p-2">
+                <h3 class="font-bold text-sm">${state}</h3>
+                <p class="text-xs">${declarations.length} declaration(s)</p>
+                ${declarations.slice(0, 3).map(d => `
+                  <p class="text-xs">${d.femaDeclarationString} - ${d.incidentType || d.declarationType}</p>
+                `).join('')}
+                ${declarations.length > 3 ? `<p class="text-xs">...and ${declarations.length - 3} more</p>` : ''}
+              </div>
+            `;
+            
+            circle.bindPopup(popupContent);
+            femaOverlayLayer.addLayer(circle);
+          }
+        });
+      } else {
+        if (femaOverlayLayer) {
+          femaOverlayLayer.clearLayers();
+        }
+      }
+    }
+
+    // State center coordinates for map markers
+    const STATE_CENTERS = {
+      'AL': { lat: 32.806, lon: -86.791 }, 'AK': { lat: 64.200, lon: -152.493 }, 'AZ': { lat: 34.049, lon: -111.094 },
+      'AR': { lat: 35.171, lon: -92.397 }, 'CA': { lat: 36.778, lon: -119.418 }, 'CO': { lat: 39.550, lon: -105.782 },
+      'CT': { lat: 41.603, lon: -72.754 }, 'DE': { lat: 38.911, lon: -75.528 }, 'FL': { lat: 27.664, lon: -81.516 },
+      'GA': { lat: 32.166, lon: -82.900 }, 'HI': { lat: 19.897, lon: -155.582 }, 'ID': { lat: 44.068, lon: -114.742 },
+      'IL': { lat: 40.633, lon: -89.398 }, 'IN': { lat: 40.267, lon: -86.135 }, 'IA': { lat: 41.878, lon: -93.098 },
+      'KS': { lat: 39.012, lon: -98.484 }, 'KY': { lat: 37.839, lon: -84.270 }, 'LA': { lat: 30.985, lon: -91.963 },
+      'ME': { lat: 45.254, lon: -69.445 }, 'MD': { lat: 39.046, lon: -76.642 }, 'MA': { lat: 42.407, lon: -71.382 },
+      'MI': { lat: 44.315, lon: -85.602 }, 'MN': { lat: 46.729, lon: -94.686 }, 'MS': { lat: 32.354, lon: -89.398 },
+      'MO': { lat: 37.964, lon: -91.832 }, 'MT': { lat: 46.879, lon: -110.362 }, 'NE': { lat: 41.493, lon: -99.902 },
+      'NV': { lat: 38.313, lon: -117.055 }, 'NH': { lat: 43.194, lon: -71.572 }, 'NJ': { lat: 40.058, lon: -74.405 },
+      'NM': { lat: 34.841, lon: -106.337 }, 'NC': { lat: 35.630, lon: -79.806 }, 'ND': { lat: 47.551, lon: -101.002 },
+      'OH': { lat: 40.417, lon: -82.907 }, 'OK': { lat: 35.008, lon: -97.092 }, 'OR': { lat: 43.804, lon: -120.554 },
+      'PA': { lat: 41.203, lon: -77.195 }, 'RI': { lat: 41.580, lon: -71.477 }, 'SC': { lat: 33.836, lon: -81.163 },
+      'SD': { lat: 43.969, lon: -99.902 }, 'TN': { lat: 35.518, lon: -86.580 }, 'TX': { lat: 31.967, lon: -99.902 },
+      'UT': { lat: 39.321, lon: -111.094 }, 'VT': { lat: 44.559, lon: -72.578 }, 'VA': { lat: 37.432, lon: -78.854 },
+      'WA': { lat: 47.751, lon: -120.740 }, 'WV': { lat: 38.918, lon: -80.547 }, 'WI': { lat: 43.784, lon: -88.788 },
+      'WY': { lat: 43.076, lon: -107.290 }, 'DC': { lat: 38.907, lon: -77.037 }, 'PR': { lat: 18.221, lon: -66.129 },
+      'VI': { lat: 18.221, lon: -64.798 }, 'GU': { lat: 13.444, lon: 144.794 }, 'AS': { lat: -14.271, lon: -170.132 }
+    };
 
     // DOM elements
     const regionFilter = document.getElementById('region-filter');
@@ -285,6 +531,7 @@
     const mapView = document.getElementById('map-view');
     const listView = document.getElementById('list-view');
     const dashboardView = document.getElementById('dashboard-view');
+    const femaView = document.getElementById('fema-view');
     const dashboardStats = document.getElementById('dashboard-stats');
     const eventsTableBody = document.getElementById('events-table-body');
     const lastUpdated = document.getElementById('last-updated');
@@ -825,36 +1072,35 @@
     function switchView(view) {
       currentView = view;
       
-      document.getElementById('view-map').className = view === 'map' 
+      const viewMap = document.getElementById('view-map');
+      const viewList = document.getElementById('view-list');
+      const viewDashboard = document.getElementById('view-dashboard');
+      const viewFema = document.getElementById('view-fema');
+      
+      viewMap.className = view === 'map' 
         ? 'bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700' 
-        : 'bg-gray-200 text-gray-700 px-4 py-2 rounded hover:bg-gray-300';
-      document.getElementById('view-list').className = view === 'list' 
+        : 'bg-gray-200 dark:bg-dark-border dark:text-white text-gray-700 px-4 py-2 rounded hover:bg-gray-300';
+      viewList.className = view === 'list' 
         ? 'bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700' 
-        : 'bg-gray-200 text-gray-700 px-4 py-2 rounded hover:bg-gray-300';
-      document.getElementById('view-dashboard').className = view === 'dashboard' 
+        : 'bg-gray-200 dark:bg-dark-border dark:text-white text-gray-700 px-4 py-2 rounded hover:bg-gray-300';
+      viewDashboard.className = view === 'dashboard' 
         ? 'bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700' 
-        : 'bg-gray-200 text-gray-700 px-4 py-2 rounded hover:bg-gray-300';
+        : 'bg-gray-200 dark:bg-dark-border dark:text-white text-gray-700 px-4 py-2 rounded hover:bg-gray-300';
+      viewFema.className = view === 'fema' 
+        ? 'bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700' 
+        : 'bg-gray-200 dark:bg-dark-border dark:text-white text-gray-700 px-4 py-2 rounded hover:bg-gray-300';
 
       mapView.classList.toggle('hidden', view !== 'map');
       listView.classList.toggle('hidden', view !== 'list');
       dashboardView.classList.toggle('hidden', view !== 'dashboard');
+      femaView.classList.toggle('hidden', view !== 'fema');
 
       if (view === 'dashboard') {
-        // Add dashboard content if not exists
-        if (!document.getElementById('region-list')) {
-          const regionCol = dashboardView.querySelector('#region-chart');
-          const categoryCol = dashboardView.querySelector('#category-chart');
-          
-          if (regionCol) {
-            regionCol.innerHTML = '<div id="region-list"></div>';
-            regionCol.className = '';
-          }
-          if (categoryCol) {
-            categoryCol.innerHTML = '<div id="category-list"></div>';
-            categoryCol.className = '';
-          }
+        const regionCol = document.getElementById('region-list');
+        const categoryCol = document.getElementById('category-list');
+        if (regionCol) {
+          updateDashboard();
         }
-        updateDashboard();
       }
       
       if (view === 'map' && map) {
@@ -885,6 +1131,14 @@
     document.getElementById('view-map').addEventListener('click', () => switchView('map'));
     document.getElementById('view-list').addEventListener('click', () => switchView('list'));
     document.getElementById('view-dashboard').addEventListener('click', () => switchView('dashboard'));
+    document.getElementById('view-fema').addEventListener('click', () => {
+      switchView('fema');
+      if (femaDeclarations.length === 0) {
+        fetchFemaDeclarations();
+      }
+    });
+
+    document.getElementById('fema-overlay-toggle').addEventListener('change', toggleFemaOverlay);
 
     document.getElementById('export-csv').addEventListener('click', exportCSV);
     document.getElementById('export-json').addEventListener('click', exportJSON);
