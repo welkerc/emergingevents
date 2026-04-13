@@ -158,11 +158,24 @@
           <button id="view-fema" class="bg-gray-200 dark:bg-dark-border dark:text-white text-gray-700 px-4 py-2 rounded hover:bg-gray-300">
             FEMA Declarations
           </button>
+          <button id="view-nws" class="bg-gray-200 dark:bg-dark-border dark:text-white text-gray-700 px-4 py-2 rounded hover:bg-gray-300">
+            Weather Alerts
+          </button>
         </div>
-        <div class="flex gap-2">
+        <div class="flex gap-2 items-center">
           <label class="flex items-center gap-2 text-sm dark:text-white">
             <input type="checkbox" id="fema-overlay-toggle" class="w-4 h-4">
             FEMA Overlay
+          </label>
+          <label class="flex items-center gap-2 text-sm dark:text-white ml-4">
+            Min Magnitude
+            <select id="magnitude-filter" class="border border-gray-300 dark:border-dark-border dark:bg-dark-bg dark:text-white rounded px-2 py-1 text-sm">
+              <option value="0">All</option>
+              <option value="4">4.0+</option>
+              <option value="5">5.0+</option>
+              <option value="6">6.0+</option>
+              <option value="7">7.0+</option>
+            </select>
           </label>
           <button id="export-csv" class="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700">
             Export CSV
@@ -273,6 +286,49 @@
         </div>
       </div>
 
+      <!-- NWS Weather Alerts View -->
+      <div id="nws-view" class="hidden">
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
+          <div class="bg-white dark:bg-dark-card rounded-lg shadow p-4">
+            <h3 class="text-lg font-bold mb-4 dark:text-white">Alert Severity</h3>
+            <div id="nws-severity-stats" class="space-y-2"></div>
+          </div>
+          <div class="bg-white dark:bg-dark-card rounded-lg shadow p-4">
+            <h3 class="text-lg font-bold mb-4 dark:text-white">Alert Types</h3>
+            <div id="nws-type-stats" class="space-y-2"></div>
+          </div>
+          <div class="bg-white dark:bg-dark-card rounded-lg shadow p-4">
+            <h3 class="text-lg font-bold mb-4 dark:text-white">By State (Top 10)</h3>
+            <div id="nws-state-stats" class="space-y-2"></div>
+          </div>
+          <div class="bg-white dark:bg-dark-card rounded-lg shadow p-4">
+            <h3 class="text-lg font-bold mb-4 dark:text-white">Summary</h3>
+            <div id="nws-summary" class="space-y-2"></div>
+          </div>
+        </div>
+        <div class="bg-white dark:bg-dark-card rounded-lg shadow p-4">
+          <h3 class="text-lg font-bold mb-4 dark:text-white">Active Weather Alerts</h3>
+          <div class="overflow-x-auto">
+            <table class="min-w-full">
+              <thead class="bg-gray-50 dark:bg-dark-border">
+                <tr>
+                  <th class="px-4 py-2 text-left text-sm font-medium text-gray-700 dark:text-gray-300">Alert</th>
+                  <th class="px-4 py-2 text-left text-sm font-medium text-gray-700 dark:text-gray-300">Type</th>
+                  <th class="px-4 py-2 text-left text-sm font-medium text-gray-700 dark:text-gray-300">Severity</th>
+                  <th class="px-4 py-2 text-left text-sm font-medium text-gray-700 dark:text-gray-300">Certainty</th>
+                  <th class="px-4 py-2 text-left text-sm font-medium text-gray-700 dark:text-gray-300">Urgency</th>
+                  <th class="px-4 py-2 text-left text-sm font-medium text-gray-700 dark:text-gray-300">Area</th>
+                  <th class="px-4 py-2 text-left text-sm font-medium text-gray-700 dark:text-gray-300">Expires</th>
+                </tr>
+              </thead>
+              <tbody id="nws-table-body">
+                <!-- Populated by JS -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
       <!-- News Modal -->
       <div id="news-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
         <div class="bg-white dark:bg-dark-card rounded-lg shadow-lg max-w-2xl w-full max-h-[80vh] overflow-hidden flex flex-col">
@@ -335,6 +391,193 @@
     let selectedEvent = null;
     let newsCache = {};
     let femaOverlayEnabled = false;
+    let nwsAlerts = [];
+    let magnitudeFilter = 0;
+
+    // NWS Alert severity colors
+    const NWS_SEVERITY_COLORS = {
+      'Extreme': '#dc2626',
+      'Severe': '#ea580c',
+      'Moderate': '#eab308',
+      'Minor': '#65a30d',
+      'Unknown': '#6b7280'
+    };
+
+    // Fetch NWS Weather Alerts
+    async function fetchNwsAlerts() {
+      showLoading(true);
+      try {
+        let allAlerts = [];
+        
+        // NWS API - use status=actual instead of area=US (which returns 400)
+        const endpoints = [
+          { name: 'US-Wide', url: 'https://api.weather.gov/alerts/status/actual' },
+          { name: 'TX', url: 'https://api.weather.gov/alerts/active?state=TX' },
+          { name: 'FL', url: 'https://api.weather.gov/alerts/active?state=FL' },
+          { name: 'LA', url: 'https://api.weather.gov/alerts/active?state=LA' },
+          { name: 'NC', url: 'https://api.weather.gov/alerts/active?state=NC' },
+          { name: 'CA', url: 'https://api.weather.gov/alerts/active?state=CA' },
+        ];
+        
+        for (const endpoint of endpoints) {
+          try {
+            const response = await fetch(endpoint.url, {
+              headers: { 'User-Agent': 'RegionalEmergingEventsDashboard/1.0' }
+            });
+            
+            if (response.ok) {
+              const data = await response.json();
+              if (data.features && data.features.length > 0) {
+                console.log(`NWS ${endpoint.name}: ${data.features.length} alerts`);
+                allAlerts = [...allAlerts, ...data.features];
+              }
+            } else {
+              console.log(`NWS ${endpoint.name}: HTTP ${response.status}`);
+            }
+          } catch (e) {
+            console.log(`NWS ${endpoint.name} failed:`, e.message);
+          }
+        }
+        
+        // Deduplicate by alert ID
+        const uniqueAlerts = [];
+        const seenIds = new Set();
+        allAlerts.forEach(alert => {
+          if (!seenIds.has(alert.properties.id)) {
+            seenIds.add(alert.properties.id);
+            uniqueAlerts.push(alert);
+          }
+        });
+        
+        console.log('Total unique NWS alerts found:', uniqueAlerts.length);
+        
+        if (uniqueAlerts.length > 0) {
+          nwsAlerts = uniqueAlerts.map(alert => ({
+            id: alert.properties.id,
+            sender: alert.properties.senderName,
+            event: alert.properties.event,
+            headline: alert.properties.headline,
+            description: alert.properties.description,
+            instruction: alert.properties.instruction,
+            severity: alert.properties.severity,
+            certainty: alert.properties.certainty,
+            urgency: alert.properties.urgency,
+            areaDesc: alert.properties.areaDesc,
+            effective: alert.properties.effective,
+            expires: alert.properties.expires,
+            geometry: alert.geometry,
+            coordinates: alert.geometry ? alert.geometry.coordinates : null
+          }));
+          
+          applyFilters();
+          updateNwsView();
+          console.log('NWS Alerts loaded:', nwsAlerts.length);
+        } else {
+          console.log('No active NWS alerts found');
+          updateNwsView();
+        }
+      } catch (error) {
+        console.error('Error fetching NWS alerts:', error);
+      } finally {
+        showLoading(false);
+      }
+    }
+
+    // Update NWS view
+    function updateNwsView() {
+      if (nwsAlerts.length === 0) {
+        document.getElementById('nws-severity-stats').innerHTML = '<p class="text-sm text-gray-500 p-2">No active weather alerts</p>';
+        document.getElementById('nws-type-stats').innerHTML = '<p class="text-sm text-gray-500 p-2">No active weather alerts</p>';
+        document.getElementById('nws-state-stats').innerHTML = '<p class="text-sm text-gray-500 p-2">No active weather alerts</p>';
+        document.getElementById('nws-summary').innerHTML = '<p class="text-sm text-gray-500 p-2">No active weather alerts</p>';
+        document.getElementById('nws-table-body').innerHTML = '<tr><td colspan="7" class="px-4 py-8 text-center text-gray-500 dark:text-gray-400">No active weather alerts in the US at this time.</td></tr>';
+        return;
+      }
+      
+      const severityStats = {};
+      const typeStats = {};
+      const stateStats = {};
+      
+      nwsAlerts.forEach(alert => {
+        severityStats[alert.severity] = (severityStats[alert.severity] || 0) + 1;
+        
+        const eventType = alert.event || 'Unknown';
+        typeStats[eventType] = (typeStats[eventType] || 0) + 1;
+        
+        const state = alert.areaDesc.split(';')[0].trim();
+        if (state) {
+          stateStats[state] = (stateStats[state] || 0) + 1;
+        }
+      });
+
+      // Severity stats
+      document.getElementById('nws-severity-stats').innerHTML = Object.entries(severityStats)
+        .sort((a, b) => b[1] - a[1])
+        .map(([severity, count]) => `
+          <div class="flex justify-between items-center p-2 border-b dark:border-dark-border">
+            <span class="flex items-center gap-2">
+              <span class="w-3 h-3 rounded-full" style="background-color: ${NWS_SEVERITY_COLORS[severity] || '#6b7280'}"></span>
+              <span class="text-sm dark:text-gray-300">${severity}</span>
+            </span>
+            <span class="font-bold dark:text-white">${count}</span>
+          </div>
+        `).join('') || '<p class="text-sm text-gray-500">No alerts</p>';
+
+      // Type stats
+      document.getElementById('nws-type-stats').innerHTML = Object.entries(typeStats)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 8)
+        .map(([type, count]) => `
+          <div class="flex justify-between items-center p-2 border-b dark:border-dark-border">
+            <span class="text-sm dark:text-gray-300 truncate">${type}</span>
+            <span class="font-bold dark:text-white">${count}</span>
+          </div>
+        `).join('') || '<p class="text-sm text-gray-500">No alerts</p>';
+
+      // State stats
+      document.getElementById('nws-state-stats').innerHTML = Object.entries(stateStats)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 10)
+        .map(([state, count]) => `
+          <div class="flex justify-between items-center p-2 border-b dark:border-dark-border">
+            <span class="text-sm dark:text-gray-300">${state}</span>
+            <span class="font-bold dark:text-white">${count}</span>
+          </div>
+        `).join('') || '<p class="text-sm text-gray-500">No alerts</p>';
+
+      // Summary
+      document.getElementById('nws-summary').innerHTML = `
+        <div class="flex justify-between items-center p-2 border-b dark:border-dark-border">
+          <span class="text-sm dark:text-gray-300">Total Alerts</span>
+          <span class="font-bold dark:text-white">${nwsAlerts.length}</span>
+        </div>
+        <div class="flex justify-between items-center p-2 border-b dark:border-dark-border">
+          <span class="text-sm dark:text-gray-300">Extreme</span>
+          <span class="font-bold text-red-600">${severityStats['Extreme'] || 0}</span>
+        </div>
+        <div class="flex justify-between items-center p-2 border-b dark:border-dark-border">
+          <span class="text-sm dark:text-gray-300">Severe</span>
+          <span class="font-bold text-orange-600">${severityStats['Severe'] || 0}</span>
+        </div>
+      `;
+
+      // Table
+      document.getElementById('nws-table-body').innerHTML = nwsAlerts.slice(0, 100).map(alert => `
+        <tr class="border-b dark:border-dark-border hover:bg-gray-50 dark:hover:bg-dark-border">
+          <td class="px-4 py-2 text-sm font-medium dark:text-white">${alert.event || '-'}</td>
+          <td class="px-4 py-2 text-sm dark:text-gray-300">${alert.event || alert.headline?.substring(0, 30) || '-'}</td>
+          <td class="px-4 py-2 text-sm">
+            <span class="px-2 py-1 rounded text-xs text-white" style="background-color: ${NWS_SEVERITY_COLORS[alert.severity] || '#6b7280'}">
+              ${alert.severity}
+            </span>
+          </td>
+          <td class="px-4 py-2 text-sm dark:text-gray-300">${alert.certainty || '-'}</td>
+          <td class="px-4 py-2 text-sm dark:text-gray-300">${alert.urgency || '-'}</td>
+          <td class="px-4 py-2 text-sm dark:text-gray-300 max-w-xs truncate">${alert.areaDesc || '-'}</td>
+          <td class="px-4 py-2 text-sm dark:text-gray-300">${alert.expires ? new Date(alert.expires).toLocaleString() : '-'}</td>
+        </tr>
+      `).join('');
+    }
 
     // State to FEMA region mapping
     const STATE_TO_FEMA_REGION = {
@@ -636,6 +879,7 @@
       const dateRange = dateFilter.value;
       const status = statusFilter.value;
       const search = searchFilter.value.toLowerCase();
+      magnitudeFilter = parseFloat(document.getElementById('magnitude-filter').value) || 0;
 
       filteredEvents = events.filter(event => {
         // Region filter
@@ -658,6 +902,11 @@
         
         // Search filter
         if (search && !event.title.toLowerCase().includes(search)) return false;
+
+        // Magnitude filter (for earthquakes)
+        if (magnitudeFilter > 0 && event.magnitude) {
+          if (parseFloat(event.magnitude) < magnitudeFilter) return false;
+        }
         
         return true;
       });
@@ -1076,6 +1325,7 @@
       const viewList = document.getElementById('view-list');
       const viewDashboard = document.getElementById('view-dashboard');
       const viewFema = document.getElementById('view-fema');
+      const viewNws = document.getElementById('view-nws');
       
       viewMap.className = view === 'map' 
         ? 'bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700' 
@@ -1089,11 +1339,15 @@
       viewFema.className = view === 'fema' 
         ? 'bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700' 
         : 'bg-gray-200 dark:bg-dark-border dark:text-white text-gray-700 px-4 py-2 rounded hover:bg-gray-300';
+      viewNws.className = view === 'nws' 
+        ? 'bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700' 
+        : 'bg-gray-200 dark:bg-dark-border dark:text-white text-gray-700 px-4 py-2 rounded hover:bg-gray-300';
 
       mapView.classList.toggle('hidden', view !== 'map');
       listView.classList.toggle('hidden', view !== 'list');
       dashboardView.classList.toggle('hidden', view !== 'dashboard');
       femaView.classList.toggle('hidden', view !== 'fema');
+      document.getElementById('nws-view').classList.toggle('hidden', view !== 'nws');
 
       if (view === 'dashboard') {
         const regionCol = document.getElementById('region-list');
@@ -1137,8 +1391,15 @@
         fetchFemaDeclarations();
       }
     });
+    document.getElementById('view-nws').addEventListener('click', () => {
+      switchView('nws');
+      if (nwsAlerts.length === 0) {
+        fetchNwsAlerts();
+      }
+    });
 
     document.getElementById('fema-overlay-toggle').addEventListener('change', toggleFemaOverlay);
+    document.getElementById('magnitude-filter').addEventListener('change', applyFilters);
 
     document.getElementById('export-csv').addEventListener('click', exportCSV);
     document.getElementById('export-json').addEventListener('click', exportJSON);
