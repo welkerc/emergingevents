@@ -1,0 +1,926 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FEMA Region Natural Events Dashboard</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            dark: {
+              bg: '#1a1a2e',
+              card: '#16213e',
+              border: '#0f3460',
+              text: '#eaeaea'
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.4.1/dist/MarkerCluster.css" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.4.1/dist/MarkerCluster.Default.css" />
+  <script src="https://unpkg.com/leaflet.markercluster@1.4.1/dist/leaflet.markercluster.js"></script>
+  <style>
+    #map { height: 500px; z-index: 1; }
+    .event-marker { display: flex; align-items: center; justify-content: center; }
+    .loading-spinner { border: 3px solid #f3f3f3; border-top: 3px solid #3498db; border-radius: 50%; width: 20px; height: 20px; animation: spin 1s linear infinite; }
+    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    .accordion-content { max-height: 0; overflow: hidden; transition: max-height 0.3s ease-out; }
+    .accordion-content.open { max-height: 500px; }
+    .region-dropdown { position: absolute; z-index: 1000; }
+    .leaflet-popup-content-wrapper { background: white; color: #333; }
+    .dark .leaflet-popup-content-wrapper { background: #16213e; color: #eaeaea; }
+    .dark .leaflet-popup-tip { background: #16213e; }
+  </style>
+</head>
+<body class="bg-gray-100 dark:bg-dark-bg min-h-screen transition-colors">
+  <div id="app">
+    <!-- Header -->
+    <header class="bg-blue-900 dark:bg-dark-card text-white p-4 shadow-lg">
+      <div class="container mx-auto flex justify-between items-center">
+        <h1 class="text-2xl font-bold">FEMA Region Natural Events Dashboard</h1>
+        <div class="flex items-center gap-4">
+          <button id="dark-mode-toggle" class="bg-gray-600 hover:bg-gray-500 px-3 py-1 rounded text-sm">
+            Dark Mode
+          </button>
+          <button id="api-key-btn" class="bg-purple-600 hover:bg-purple-500 px-3 py-1 rounded text-sm">
+            Set News API
+          </button>
+          <span id="last-updated" class="text-sm text-blue-200"></span>
+          <select id="auto-refresh" class="bg-blue-800 text-white px-3 py-1 rounded text-sm">
+            <option value="0">Manual</option>
+            <option value="5">5 min</option>
+            <option value="15">15 min</option>
+            <option value="30">30 min</option>
+          </select>
+          <button id="refresh-btn" class="bg-blue-600 hover:bg-blue-500 px-3 py-1 rounded text-sm">
+            Refresh
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <!-- Main Content -->
+    <div class="container mx-auto p-4">
+      <!-- Filters -->
+      <div class="bg-white dark:bg-dark-card rounded-lg shadow p-4 mb-4">
+        <div class="grid grid-cols-1 md:grid-cols-5 gap-4">
+          <!-- FEMA Region Filter -->
+          <div>
+            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">FEMA Region</label>
+            <select id="region-filter" class="w-full border border-gray-300 dark:border-dark-border dark:bg-dark-bg dark:text-white rounded px-3 py-2">
+              <option value="">All Regions</option>
+              <option value="1">Region 1 (CT, ME, MA, NH, RI, VT)</option>
+              <option value="2">Region 2 (NJ, NY, PR, VI)</option>
+              <option value="3">Region 3 (DE, MD, PA, VA, WV, DC)</option>
+              <option value="4">Region 4 (AL, FL, GA, KY, MS, NC, SC, TN)</option>
+              <option value="5">Region 5 (IL, IN, MI, MN, OH, WI)</option>
+              <option value="6">Region 6 (AR, LA, NM, OK, TX)</option>
+              <option value="7">Region 7 (IA, KS, MO, NE)</option>
+              <option value="8">Region 8 (CO, MT, ND, SD, UT, WY)</option>
+              <option value="9">Region 9 (AZ, CA, HI, NV, Pacific Territories)</option>
+              <option value="10">Region 10 (AK, ID, OR, WA)</option>
+            </select>
+          </div>
+
+          <!-- Category Filter -->
+          <div>
+            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Category</label>
+            <select id="category-filter" class="w-full border border-gray-300 dark:border-dark-border dark:bg-dark-bg dark:text-white rounded px-3 py-2">
+              <option value="">All Categories</option>
+              <option value="wildfires">Wildfires</option>
+              <option value="severeStorms">Severe Storms</option>
+              <option value="floods">Floods</option>
+              <option value="volcanoes">Volcanoes</option>
+              <option value="earthquakes">Earthquakes</option>
+              <option value="snow">Snow & Ice</option>
+              <option value="drought">Drought</option>
+              <option value="landslides">Landslides</option>
+            </select>
+          </div>
+
+          <!-- Date Range Filter -->
+          <div>
+            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Date Range</label>
+            <select id="date-filter" class="w-full border border-gray-300 dark:border-dark-border dark:bg-dark-bg dark:text-white rounded px-3 py-2">
+              <option value="7">Last 7 Days</option>
+              <option value="1">Last 24 Hours</option>
+              <option value="30">Last 30 Days</option>
+              <option value="90">Last 90 Days</option>
+              <option value="365">Last Year</option>
+              <option value="all">All Time</option>
+            </select>
+          </div>
+
+          <!-- Status Filter -->
+          <div>
+            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Status</label>
+            <select id="status-filter" class="w-full border border-gray-300 dark:border-dark-border dark:bg-dark-bg dark:text-white rounded px-3 py-2">
+              <option value="all">All Events</option>
+              <option value="open">Active Only</option>
+              <option value="closed">Closed Only</option>
+            </select>
+          </div>
+
+          <!-- Search -->
+          <div>
+            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Search</label>
+            <input type="text" id="search-filter" placeholder="Search events..." 
+                   class="w-full border border-gray-300 dark:border-dark-border dark:bg-dark-bg dark:text-white rounded px-3 py-2">
+          </div>
+        </div>
+      </div>
+
+      <!-- Dashboard Stats -->
+      <div id="dashboard-stats" class="grid grid-cols-2 md:grid-cols-5 gap-4 mb-4">
+        <!-- Stats populated by JS -->
+      </div>
+
+      <!-- View Toggle & Export -->
+      <div class="flex justify-between items-center mb-4">
+        <div class="flex gap-2">
+          <button id="view-map" class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">
+            Map View
+          </button>
+          <button id="view-list" class="bg-gray-200 dark:bg-dark-border dark:text-white text-gray-700 px-4 py-2 rounded hover:bg-gray-300">
+            List View
+          </button>
+          <button id="view-dashboard" class="bg-gray-200 dark:bg-dark-border dark:text-white text-gray-700 px-4 py-2 rounded hover:bg-gray-300">
+            Dashboard
+          </button>
+        </div>
+        <div class="flex gap-2">
+          <button id="export-csv" class="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700">
+            Export CSV
+          </button>
+          <button id="export-json" class="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700">
+            Export JSON
+          </button>
+        </div>
+      </div>
+
+      <!-- Map View -->
+      <div id="map-view" class="bg-white dark:bg-dark-card rounded-lg shadow p-4">
+        <div id="map" class="w-full rounded"></div>
+      </div>
+
+      <!-- List View -->
+      <div id="list-view" class="hidden bg-white dark:bg-dark-card rounded-lg shadow p-4">
+        <div class="overflow-x-auto">
+          <table class="min-w-full">
+            <thead class="bg-gray-50 dark:bg-dark-border">
+              <tr>
+                <th class="px-4 py-2 text-left text-sm font-medium text-gray-700 dark:text-gray-300 cursor-pointer" data-sort="date">Date ↕</th>
+                <th class="px-4 py-2 text-left text-sm font-medium text-gray-700 dark:text-gray-300 cursor-pointer" data-sort="title">Title ↕</th>
+                <th class="px-4 py-2 text-left text-sm font-medium text-gray-700 dark:text-gray-300">Category</th>
+                <th class="px-4 py-2 text-left text-sm font-medium text-gray-700 dark:text-gray-300">Region</th>
+                <th class="px-4 py-2 text-left text-sm font-medium text-gray-700 dark:text-gray-300">Magnitude</th>
+                <th class="px-4 py-2 text-left text-sm font-medium text-gray-700 dark:text-gray-300">Status</th>
+                <th class="px-4 py-2 text-left text-sm font-medium text-gray-700 dark:text-gray-300">News</th>
+              </tr>
+            </thead>
+            <tbody id="events-table-body">
+              <!-- Populated by JS -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Dashboard View -->
+      <div id="dashboard-view" class="hidden">
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+          <div class="bg-white dark:bg-dark-card rounded-lg shadow p-4">
+            <h3 class="text-lg font-bold mb-4 dark:text-white">Events by Region</h3>
+            <canvas id="region-chart"></canvas>
+          </div>
+          <div class="bg-white dark:bg-dark-card rounded-lg shadow p-4">
+            <h3 class="text-lg font-bold mb-4 dark:text-white">Events by Category</h3>
+            <canvas id="category-chart"></canvas>
+          </div>
+        </div>
+      </div>
+
+      <!-- Loading Indicator -->
+      <div id="loading" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div class="bg-white dark:bg-dark-card rounded-lg p-8 flex items-center gap-4">
+          <div class="loading-spinner"></div>
+          <span class="dark:text-white">Loading events...</span>
+        </div>
+      </div>
+
+      <!-- News Modal -->
+      <div id="news-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+        <div class="bg-white dark:bg-dark-card rounded-lg shadow-lg max-w-2xl w-full max-h-[80vh] overflow-hidden flex flex-col">
+          <div class="p-4 border-b dark:border-dark-border flex justify-between items-center">
+            <h2 id="news-modal-title" class="text-lg font-bold dark:text-white">News Articles</h2>
+            <button id="close-news-modal" class="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-white text-2xl">&times;</button>
+          </div>
+          <div id="news-modal-content" class="p-4 overflow-y-auto flex-1">
+            <!-- News articles will be loaded here -->
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // FEMA Region definitions with state mappings and approximate bounding boxes
+    const FEMA_REGIONS = {
+      1: { name: 'Region 1', states: ['CT', 'ME', 'MA', 'NH', 'RI', 'VT'], bounds: [[42, -73.5], [47.5, -66.5]] },
+      2: { name: 'Region 2', states: ['NJ', 'NY', 'PR', 'VI'], bounds: [[32, -75], [45.5, -71.5]] },
+      3: { name: 'Region 3', states: ['DE', 'MD', 'PA', 'VA', 'WV', 'DC'], bounds: [[36.5, -83], [42.5, -74.5]] },
+      4: { name: 'Region 4', states: ['AL', 'FL', 'GA', 'KY', 'MS', 'NC', 'SC', 'TN'], bounds: [[24, -90], [42, -75]] },
+      5: { name: 'Region 5', states: ['IL', 'IN', 'MI', 'MN', 'OH', 'WI'], bounds: [[36, -91.5], [49, -84]] },
+      6: { name: 'Region 6', states: ['AR', 'LA', 'NM', 'OK', 'TX'], bounds: [[25.5, -106.5], [37, -89]] },
+      7: { name: 'Region 7', states: ['IA', 'KS', 'MO', 'NE'], bounds: [[36, -102], [43.5, -90]] },
+      8: { name: 'Region 8', states: ['CO', 'MT', 'ND', 'SD', 'UT', 'WY'], bounds: [[37, -112], [49, -100]] },
+      9: { name: 'Region 9', states: ['AZ', 'CA', 'HI', 'NV', 'GU', 'AS', 'MP', 'MH', 'FM'], bounds: [[-15, -180], [42.5, -105]] },
+      10: { name: 'Region 10', states: ['AK', 'ID', 'OR', 'WA'], bounds: [[42, -180], [71.5, -110]] }
+    };
+
+    // State to region mapping
+    const STATE_TO_REGION = {};
+    Object.entries(FEMA_REGIONS).forEach(([region, data]) => {
+      data.states.forEach(state => {
+        STATE_TO_REGION[state] = parseInt(region);
+      });
+    });
+
+    // Category colors
+    const CATEGORY_COLORS = {
+      wildfires: '#ef4444',
+      severeStorms: '#f59e0b',
+      floods: '#3b82f6',
+      volcanoes: '#8b5cf6',
+      earthquakes: '#ec4899',
+      snow: '#06b6d4',
+      drought: '#d97706',
+      landslides: '#84cc16'
+    };
+
+    // App state
+    let events = [];
+    let filteredEvents = [];
+    let map = null;
+    let markersLayer = null;
+    let currentView = 'map';
+    let autoRefreshInterval = null;
+    let selectedEvent = null;
+    let newsCache = {};
+
+    // DOM elements
+    const regionFilter = document.getElementById('region-filter');
+    const categoryFilter = document.getElementById('category-filter');
+    const dateFilter = document.getElementById('date-filter');
+    const statusFilter = document.getElementById('status-filter');
+    const searchFilter = document.getElementById('search-filter');
+    const loadingEl = document.getElementById('loading');
+    const mapView = document.getElementById('map-view');
+    const listView = document.getElementById('list-view');
+    const dashboardView = document.getElementById('dashboard-view');
+    const dashboardStats = document.getElementById('dashboard-stats');
+    const eventsTableBody = document.getElementById('events-table-body');
+    const lastUpdated = document.getElementById('last-updated');
+    const autoRefresh = document.getElementById('auto-refresh');
+    const refreshBtn = document.getElementById('refresh-btn');
+
+    // Check if point is in region bounds (simplified check)
+    function isPointInRegion(lat, lon, region) {
+      const bounds = FEMA_REGIONS[region].bounds;
+      return lat >= bounds[0][0] && lat <= bounds[1][0] && lon >= bounds[0][1] && lon <= bounds[1][1];
+    }
+
+    // Get region from coordinates
+    function getRegionFromCoords(lat, lon) {
+      // Special handling for regions with complex boundaries
+      // Region 4: Southeast
+      if (lat >= 24 && lat <= 42 && lon >= -90 && lon <= -75) {
+        if (lon >= -87.5 && lon <= -81) return 4; // FL
+        if (lon >= -90 && lon <= -87.5 && lat >= 30) return 4; // AL, MS
+        return 4;
+      }
+      // Region 5: Great Lakes
+      if (lat >= 36 && lat <= 49 && lon >= -91.5 && lon <= -84) return 5;
+      // Region 6: South Central
+      if (lat >= 25.5 && lat <= 37 && lon >= -106.5 && lon <= -89) return 6;
+      // Region 7: Midwest
+      if (lat >= 36 && lat <= 43.5 && lon >= -102 && lon <= -90) return 7;
+      // Region 8: Mountain
+      if (lat >= 37 && lat <= 49 && lon >= -112 && lon <= -100) return 8;
+      // Region 9: West
+      if (lat >= -15 && lat <= 42.5 && lon >= -180 && lon <= -105) return 9;
+      // Region 1: New England
+      if (lat >= 42 && lat <= 47.5 && lon >= -73.5 && lon <= -66.5) return 1;
+      // Region 2: NY/NJ
+      if (lat >= 32 && lat <= 45.5 && lon >= -75 && lon <= -71.5) return 2;
+      // Region 3: Mid-Atlantic
+      if (lat >= 36.5 && lat <= 42.5 && lon >= -83 && lon <= -74.5) return 3;
+      // Region 10: Pacific Northwest
+      if (lat >= 42 && lat <= 71.5 && lon >= -180 && lon <= -110) return 10;
+
+      // Default fallback based on longitude (crude but works for most)
+      if (lon < -100) {
+        if (lat > 45) return 10; // Pacific NW
+        if (lat > 37) return 8; // Mountain
+        return 9; // West
+      } else if (lon < -90) {
+        if (lat > 37) return 8; // Mountain
+        return 6; // South Central
+      } else if (lon < -80) {
+        if (lat > 42) return 5; // Great Lakes
+        if (lat > 36.5) return 3; // Mid-Atlantic
+        return 4; // Southeast
+      } else {
+        if (lat > 42) return 1; // New England
+        if (lat > 36.5) return 3; // Mid-Atlantic
+        return 4; // Southeast
+      }
+    }
+
+    // Fetch events from NASA EONET API
+    async function fetchEvents() {
+      showLoading(true);
+      try {
+        const response = await fetch('https://eonet.gsfc.nasa.gov/api/v3/events?status=open&limit=500');
+        const data = await response.json();
+        
+        events = data.events.map(event => {
+          const geometry = event.geometry && event.geometry[0];
+          const coords = geometry ? geometry.coordinates : [0, 0];
+          const lon = coords[0];
+          const lat = coords[1];
+          const region = getRegionFromCoords(lat, lon);
+          
+          return {
+            ...event,
+            lat,
+            lon,
+            region,
+            category: event.categories[0]?.id || 'unknown',
+            categoryTitle: event.categories[0]?.title || 'Unknown',
+            magnitude: geometry?.magnitudeValue,
+            magnitudeUnit: geometry?.magnitudeUnit,
+            date: geometry?.date,
+            status: event.closed ? 'closed' : 'open'
+          };
+        });
+
+        lastUpdated.textContent = `Last updated: ${new Date().toLocaleTimeString()}`;
+        applyFilters();
+      } catch (error) {
+        console.error('Error fetching events:', error);
+        alert('Failed to fetch events. Please try again.');
+      } finally {
+        showLoading(false);
+      }
+    }
+
+    // Apply all filters
+    function applyFilters() {
+      const region = regionFilter.value;
+      const category = categoryFilter.value;
+      const dateRange = dateFilter.value;
+      const status = statusFilter.value;
+      const search = searchFilter.value.toLowerCase();
+
+      filteredEvents = events.filter(event => {
+        // Region filter
+        if (region && event.region !== parseInt(region)) return false;
+        
+        // Category filter
+        if (category && event.category !== category) return false;
+        
+        // Date filter
+        if (dateRange !== 'all') {
+          const eventDate = new Date(event.date);
+          const now = new Date();
+          const daysAgo = parseInt(dateRange);
+          const cutoff = new Date(now.getTime() - daysAgo * 24 * 60 * 60 * 1000);
+          if (eventDate < cutoff) return false;
+        }
+        
+        // Status filter
+        if (status !== 'all' && event.status !== status) return false;
+        
+        // Search filter
+        if (search && !event.title.toLowerCase().includes(search)) return false;
+        
+        return true;
+      });
+
+      updateView();
+    }
+
+    // Update current view
+    function updateView() {
+      updateDashboardStats();
+      
+      if (currentView === 'map') {
+        updateMap();
+      } else if (currentView === 'list') {
+        updateList();
+      } else if (currentView === 'dashboard') {
+        updateDashboard();
+      }
+    }
+
+    // Update dashboard stats
+    function updateDashboardStats() {
+      const stats = {
+        total: filteredEvents.length,
+        active: filteredEvents.filter(e => e.status === 'open').length,
+        closed: filteredEvents.filter(e => e.status === 'closed').length,
+        regions: {},
+        categories: {}
+      };
+
+      filteredEvents.forEach(event => {
+        stats.regions[event.region] = (stats.regions[event.region] || 0) + 1;
+        stats.categories[event.category] = (stats.categories[event.category] || 0) + 1;
+      });
+
+      const categoryLabels = {
+        wildfires: 'Wildfires',
+        severeStorms: 'Severe Storms',
+        floods: 'Floods',
+        volcanoes: 'Volcanoes',
+        earthquakes: 'Earthquakes',
+        snow: 'Snow & Ice',
+        drought: 'Drought',
+        landslides: 'Landslides'
+      };
+
+      const categoryOrder = ['wildfires', 'severeStorms', 'floods', 'earthquakes', 'volcanoes', 'snow', 'drought', 'landslides'];
+      const topCategories = categoryOrder
+        .filter(cat => stats.categories[cat])
+        .slice(0, 5);
+
+      const categoryCards = topCategories.map(cat => `
+        <div class="bg-white dark:bg-dark-card rounded-lg shadow p-4 cursor-pointer hover:bg-gray-50 dark:hover:bg-dark-border" onclick="filterByCategory('${cat}')">
+          <div class="text-3xl font-bold" style="color: ${CATEGORY_COLORS[cat]}">${stats.categories[cat]}</div>
+          <div class="text-sm text-gray-600 dark:text-gray-400">${categoryLabels[cat] || cat}</div>
+        </div>
+      `).join('');
+
+      dashboardStats.innerHTML = `
+        <div class="bg-white dark:bg-dark-card rounded-lg shadow p-4 cursor-pointer hover:bg-gray-50 dark:hover:bg-dark-border" onclick="filterByCategory('all')">
+          <div class="text-3xl font-bold text-blue-600">${stats.total}</div>
+          <div class="text-sm text-gray-600 dark:text-gray-400">Total Events</div>
+        </div>
+        <div class="bg-white dark:bg-dark-card rounded-lg shadow p-4 cursor-pointer hover:bg-gray-50 dark:hover:bg-dark-border" onclick="filterByStatus('open')">
+          <div class="text-3xl font-bold text-green-600">${stats.active}</div>
+          <div class="text-sm text-gray-600 dark:text-gray-400">Active</div>
+        </div>
+        <div class="bg-white dark:bg-dark-card rounded-lg shadow p-4 cursor-pointer hover:bg-gray-50 dark:hover:bg-dark-border" onclick="filterByStatus('closed')">
+          <div class="text-3xl font-bold text-gray-600">${stats.closed}</div>
+          <div class="text-sm text-gray-600 dark:text-gray-400">Closed</div>
+        </div>
+        ${categoryCards}
+      `;
+    }
+
+    // Initialize map
+    function initMap() {
+      if (map) return;
+      
+      map = L.map('map').setView([39.8283, -98.5795], 4);
+      
+      const isDark = document.documentElement.classList.contains('dark');
+      const tileUrl = isDark 
+        ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'
+        : 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png';
+      
+      L.tileLayer(tileUrl, {
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+        subdomains: 'abcd',
+        maxZoom: 20
+      }).addTo(map);
+
+      markersLayer = L.markerClusterGroup({
+        showCoverageOnHover: false,
+        maxClusterRadius: 50
+      });
+      map.addLayer(markersLayer);
+
+      updateMap();
+    }
+
+    // Focus on event in map view
+    function focusEventOnMap(lat, lon) {
+      switchView('map');
+      if (map) {
+        map.setView([lat, lon], 10);
+      }
+    }
+
+    // Update map markers
+    function updateMap() {
+      if (!map) {
+        initMap();
+        return;
+      }
+
+      markersLayer.clearLayers();
+
+      filteredEvents.forEach(event => {
+        if (!event.lat || !event.lon) return;
+
+        const color = CATEGORY_COLORS[event.category] || '#6b7280';
+        
+        const icon = L.divIcon({
+          className: 'event-marker',
+          html: `<div style="background-color: ${color}; width: 24px; height: 24px; border-radius: 50%; border: 2px solid white; box-shadow: 0 2px 4px rgba(0,0,0,0.3);"></div>`,
+          iconSize: [24, 24],
+          iconAnchor: [12, 12]
+        });
+
+        const marker = L.marker([event.lat, event.lon], { icon });
+        
+        const popupContent = `
+          <div class="p-2">
+            <h3 class="font-bold text-sm">${event.title}</h3>
+            <p class="text-xs text-gray-600">${FEMA_REGIONS[event.region]?.name || 'Unknown Region'}</p>
+            <p class="text-xs">${event.categoryTitle}</p>
+            ${event.magnitude ? `<p class="text-xs font-bold">${event.magnitude} ${event.magnitudeUnit}</p>` : ''}
+            <p class="text-xs">Status: ${event.status}</p>
+            <p class="text-xs">${new Date(event.date).toLocaleDateString()}</p>
+              <div class="flex gap-2 mt-2">
+              <button onclick="focusEventOnMap(${event.lat}, ${event.lon})" class="text-xs bg-blue-600 text-white px-2 py-1 rounded hover:bg-blue-700">Map</button>
+              <button onclick="showEventNewsByTitle('${event.title.replace(/'/g, "\\'")}')" class="text-xs bg-green-600 text-white px-2 py-1 rounded hover:bg-green-700">News</button>
+            </div>
+          </div>
+        `;
+        
+        marker.bindPopup(popupContent);
+        markersLayer.addLayer(marker);
+      });
+    }
+
+    // Update list view
+    function updateList() {
+      eventsTableBody.innerHTML = filteredEvents.map(event => `
+        <tr class="border-b dark:border-dark-border hover:bg-gray-50 dark:hover:bg-dark-border cursor-pointer" onclick="focusEventOnMap(${event.lat}, ${event.lon})">
+          <td class="px-4 py-2 text-sm dark:text-gray-300">${new Date(event.date).toLocaleDateString()}</td>
+          <td class="px-4 py-2 text-sm font-medium dark:text-white">${event.title}</td>
+          <td class="px-4 py-2 text-sm">
+            <span class="px-2 py-1 rounded text-xs text-white" style="background-color: ${CATEGORY_COLORS[event.category] || '#6b7280'}">
+              ${event.categoryTitle}
+            </span>
+          </td>
+          <td class="px-4 py-2 text-sm dark:text-gray-300">${FEMA_REGIONS[event.region]?.name || 'Unknown'}</td>
+          <td class="px-4 py-2 text-sm dark:text-gray-300">${event.magnitude ? `${event.magnitude} ${event.magnitudeUnit}` : '-'}</td>
+          <td class="px-4 py-2 text-sm">
+            <span class="px-2 py-1 rounded text-xs ${event.status === 'open' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}">
+              ${event.status}
+            </span>
+          </td>
+          <td class="px-4 py-2 text-sm">
+            <button onclick="event.stopPropagation(); showEventNewsByTitle('${event.title.replace(/'/g, "\\'")}')" class="text-xs bg-green-600 text-white px-2 py-1 rounded hover:bg-green-700">News</button>
+          </td>
+        </tr>
+      `).join('');
+    }
+
+    // Update dashboard view
+    function updateDashboard() {
+      // Simple text-based dashboard (could add charts later)
+      const regionCounts = {};
+      const categoryCounts = {};
+
+      filteredEvents.forEach(event => {
+        regionCounts[event.region] = (regionCounts[event.region] || 0) + 1;
+        categoryCounts[event.category] = (categoryCounts[event.category] || 0) + 1;
+      });
+
+      const regionList = Object.entries(regionCounts)
+        .sort((a, b) => b[1] - a[1])
+        .map(([region, count]) => `
+          <div class="flex justify-between items-center p-2 border-b dark:border-dark-border cursor-pointer hover:bg-gray-50 dark:hover:bg-dark-border" onclick="filterByRegion(${region})">
+            <span class="dark:text-white">${FEMA_REGIONS[region]?.name || `Region ${region}`}</span>
+            <span class="font-bold dark:text-white">${count}</span>
+          </div>
+        `).join('');
+
+      const categoryList = Object.entries(categoryCounts)
+        .sort((a, b) => b[1] - a[1])
+        .map(([category, count]) => `
+          <div class="flex justify-between items-center p-2 border-b dark:border-dark-border cursor-pointer hover:bg-gray-50 dark:hover:bg-dark-border" onclick="filterByCategory('${category}')">
+            <span class="flex items-center gap-2 dark:text-white">
+              <span class="w-3 h-3 rounded-full" style="background-color: ${CATEGORY_COLORS[category] || '#6b7280'}"></span>
+              ${category}
+            </span>
+            <span class="font-bold">${count}</span>
+          </div>
+        `).join('');
+
+      const existingRegionList = document.getElementById('region-list');
+      const existingCategoryList = document.getElementById('category-list');
+      
+      if (existingRegionList) existingRegionList.innerHTML = regionList;
+      if (existingCategoryList) existingCategoryList.innerHTML = categoryList;
+    }
+
+    // News API functions
+    function getNewsApiKey() {
+      const apiKey = localStorage.getItem('newsApiKey');
+      return apiKey || null;
+    }
+    const NEWS_API_BASE = 'https://newsapi.org/v2/everything';
+
+    async function fetchNewsForEvent(eventTitle) {
+      const apiKey = getNewsApiKey();
+      if (!apiKey) {
+        return [];
+      }
+      
+      const cacheKey = eventTitle.toLowerCase();
+      if (newsCache[cacheKey]) {
+        return newsCache[cacheKey];
+      }
+
+      const searchTerm = eventTitle.split(',')[0].split(' - ')[0].trim();
+      const query = encodeURIComponent(searchTerm);
+      
+      try {
+        const response = await fetch(`${NEWS_API_BASE}?q=${query}&sortBy=publishedAt&pageSize=10&apiKey=${apiKey}`);
+        const data = await response.json();
+        
+        if (data.articles) {
+          newsCache[cacheKey] = data.articles;
+          return data.articles;
+        }
+        return [];
+      } catch (error) {
+        console.error('Error fetching news:', error);
+        return [];
+      }
+    }
+
+    async function showEventNews(event) {
+      selectedEvent = event;
+      const modal = document.getElementById('news-modal');
+      const titleEl = document.getElementById('news-modal-title');
+      const contentEl = document.getElementById('news-modal-content');
+      
+      titleEl.textContent = `News: ${event.title}`;
+      contentEl.innerHTML = '<div class="flex justify-center p-4"><div class="loading-spinner"></div></div>';
+      
+      modal.classList.remove('hidden');
+      
+      const articles = await fetchNewsForEvent(event.title);
+      
+      if (articles.length === 0) {
+        contentEl.innerHTML = '<p class="text-center text-gray-500 dark:text-gray-400 p-4">No news articles found for this event.</p>';
+        return;
+      }
+      
+      contentEl.innerHTML = articles.map(article => `
+        <div class="mb-4 p-3 border-b dark:border-dark-border last:border-0">
+          <a href="${article.url}" target="_blank" class="text-blue-600 dark:text-blue-400 hover:underline font-medium">
+            ${article.title}
+          </a>
+          <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">
+            ${article.source.name} • ${new Date(article.publishedAt).toLocaleDateString()}
+          </p>
+          <p class="text-sm text-gray-600 dark:text-gray-300 mt-2 line-clamp-3">
+            ${article.description || 'No description available.'}
+          </p>
+        </div>
+      `).join('');
+    }
+
+    async function showEventNewsByTitle(title) {
+      const modal = document.getElementById('news-modal');
+      const titleEl = document.getElementById('news-modal-title');
+      const contentEl = document.getElementById('news-modal-content');
+      
+      titleEl.textContent = `News: ${title}`;
+      contentEl.innerHTML = '<div class="flex justify-center p-4"><div class="loading-spinner"></div></div>';
+      
+      modal.classList.remove('hidden');
+      
+      const articles = await fetchNewsForEvent(title);
+      
+      if (articles.length === 0) {
+        contentEl.innerHTML = '<p class="text-center text-gray-500 dark:text-gray-400 p-4">No news articles found for this event.</p>';
+        return;
+      }
+      
+      contentEl.innerHTML = articles.map(article => `
+        <div class="mb-4 p-3 border-b dark:border-dark-border last:border-0">
+          <a href="${article.url}" target="_blank" class="text-blue-600 dark:text-blue-400 hover:underline font-medium">
+            ${article.title}
+          </a>
+          <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">
+            ${article.source.name} • ${new Date(article.publishedAt).toLocaleDateString()}
+          </p>
+          <p class="text-sm text-gray-600 dark:text-gray-300 mt-2 line-clamp-3">
+            ${article.description || 'No description available.'}
+          </p>
+        </div>
+      `).join('');
+    }
+
+    function closeNewsModal() {
+      document.getElementById('news-modal').classList.add('hidden');
+      selectedEvent = null;
+    }
+
+    // Export functions
+    function exportCSV() {
+      const headers = ['Date', 'Title', 'Category', 'Region', 'Magnitude', 'Status', 'Latitude', 'Longitude'];
+      const rows = filteredEvents.map(event => [
+        new Date(event.date).toLocaleDateString(),
+        `"${event.title}"`,
+        event.categoryTitle,
+        FEMA_REGIONS[event.region]?.name || '',
+        event.magnitude ? `${event.magnitude} ${event.magnitudeUnit}` : '',
+        event.status,
+        event.lat,
+        event.lon
+      ]);
+
+      const csv = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+      downloadFile(csv, 'events.csv', 'text/csv');
+    }
+
+    function exportJSON() {
+      const json = JSON.stringify(filteredEvents, null, 2);
+      downloadFile(json, 'events.json', 'application/json');
+    }
+
+    function downloadFile(content, filename, type) {
+      const blob = new Blob([content], { type });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    // Filter functions for drill-down
+    function filterByCategory(category) {
+      if (category === 'all') {
+        categoryFilter.value = '';
+      } else {
+        categoryFilter.value = category;
+      }
+      applyFilters();
+      switchView('list');
+    }
+
+    function filterByStatus(status) {
+      statusFilter.value = status;
+      applyFilters();
+      switchView('list');
+    }
+
+    function filterByRegion(region) {
+      regionFilter.value = region;
+      applyFilters();
+      switchView('list');
+    }
+
+    // Show/hide loading
+    function showLoading(show) {
+      loadingEl.classList.toggle('hidden', !show);
+    }
+
+    // View switching
+    function switchView(view) {
+      currentView = view;
+      
+      document.getElementById('view-map').className = view === 'map' 
+        ? 'bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700' 
+        : 'bg-gray-200 text-gray-700 px-4 py-2 rounded hover:bg-gray-300';
+      document.getElementById('view-list').className = view === 'list' 
+        ? 'bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700' 
+        : 'bg-gray-200 text-gray-700 px-4 py-2 rounded hover:bg-gray-300';
+      document.getElementById('view-dashboard').className = view === 'dashboard' 
+        ? 'bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700' 
+        : 'bg-gray-200 text-gray-700 px-4 py-2 rounded hover:bg-gray-300';
+
+      mapView.classList.toggle('hidden', view !== 'map');
+      listView.classList.toggle('hidden', view !== 'list');
+      dashboardView.classList.toggle('hidden', view !== 'dashboard');
+
+      if (view === 'dashboard') {
+        // Add dashboard content if not exists
+        if (!document.getElementById('region-list')) {
+          const regionCol = dashboardView.querySelector('#region-chart');
+          const categoryCol = dashboardView.querySelector('#category-chart');
+          
+          if (regionCol) {
+            regionCol.innerHTML = '<div id="region-list"></div>';
+            regionCol.className = '';
+          }
+          if (categoryCol) {
+            categoryCol.innerHTML = '<div id="category-list"></div>';
+            categoryCol.className = '';
+          }
+        }
+        updateDashboard();
+      }
+      
+      if (view === 'map' && map) {
+        setTimeout(() => map.invalidateSize(), 100);
+      }
+    }
+
+    // Auto-refresh
+    function setupAutoRefresh() {
+      if (autoRefreshInterval) {
+        clearInterval(autoRefreshInterval);
+        autoRefreshInterval = null;
+      }
+
+      const minutes = parseInt(autoRefresh.value);
+      if (minutes > 0) {
+        autoRefreshInterval = setInterval(fetchEvents, minutes * 60 * 1000);
+      }
+    }
+
+    // Event listeners
+    regionFilter.addEventListener('change', applyFilters);
+    categoryFilter.addEventListener('change', applyFilters);
+    dateFilter.addEventListener('change', applyFilters);
+    statusFilter.addEventListener('change', applyFilters);
+    searchFilter.addEventListener('input', applyFilters);
+
+    document.getElementById('view-map').addEventListener('click', () => switchView('map'));
+    document.getElementById('view-list').addEventListener('click', () => switchView('list'));
+    document.getElementById('view-dashboard').addEventListener('click', () => switchView('dashboard'));
+
+    document.getElementById('export-csv').addEventListener('click', exportCSV);
+    document.getElementById('export-json').addEventListener('click', exportJSON);
+
+    refreshBtn.addEventListener('click', fetchEvents);
+    autoRefresh.addEventListener('change', setupAutoRefresh);
+
+    // API key button
+    document.getElementById('api-key-btn').addEventListener('click', () => {
+      const currentKey = localStorage.getItem('newsApiKey') || '';
+      const newKey = prompt('Enter your NewsAPI.org API key:', currentKey);
+      if (newKey !== null) {
+        localStorage.setItem('newsApiKey', newKey);
+        alert('API key saved!');
+      }
+    });
+
+    // Dark mode toggle
+    const darkModeBtn = document.getElementById('dark-mode-toggle');
+    darkModeBtn.textContent = 'Light Mode';
+    darkModeBtn.addEventListener('click', () => {
+      document.documentElement.classList.toggle('dark');
+      const isDark = document.documentElement.classList.contains('dark');
+      darkModeBtn.textContent = isDark ? 'Light Mode' : 'Dark Mode';
+      
+      // Update map tiles
+      if (map) {
+        map.eachLayer(layer => {
+          if (layer instanceof L.TileLayer) {
+            const tileUrl = isDark 
+              ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'
+              : 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png';
+            layer.setUrl(tileUrl);
+          }
+        });
+        setTimeout(() => map.invalidateSize(), 100);
+      }
+    });
+
+    // Sort handlers for table
+    document.querySelectorAll('[data-sort]').forEach(th => {
+      th.addEventListener('click', () => {
+        const key = th.dataset.sort;
+        filteredEvents.sort((a, b) => {
+          if (key === 'date') return new Date(b.date) - new Date(a.date);
+          if (key === 'title') return a.title.localeCompare(b.title);
+          return 0;
+        });
+        updateList();
+      });
+    });
+
+    // News modal handlers
+    document.getElementById('close-news-modal').addEventListener('click', closeNewsModal);
+    document.getElementById('news-modal').addEventListener('click', (e) => {
+      if (e.target.id === 'news-modal') {
+        closeNewsModal();
+      }
+    });
+
+    // Initialize
+    fetchEvents();
+    switchView('map');
+  </script>
+</body>
+</html>
