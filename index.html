@@ -129,6 +129,17 @@
             </select>
           </div>
 
+          <!-- Source Filter -->
+          <div>
+            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Source</label>
+            <select id="source-filter" class="w-full border border-gray-300 dark:border-dark-border dark:bg-dark-bg dark:text-white rounded px-3 py-2">
+              <option value="all">All Sources</option>
+              <option value="nasa">NASA EONET</option>
+              <option value="fema">FEMA Declarations</option>
+              <option value="nws">NWS Alerts</option>
+            </select>
+          </div>
+
           <!-- Search -->
           <div>
             <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Search</label>
@@ -167,16 +178,6 @@
             <input type="checkbox" id="fema-overlay-toggle" class="w-4 h-4">
             FEMA Overlay
           </label>
-          <label class="flex items-center gap-2 text-sm dark:text-white ml-4">
-            Min Magnitude
-            <select id="magnitude-filter" class="border border-gray-300 dark:border-dark-border dark:bg-dark-bg dark:text-white rounded px-2 py-1 text-sm">
-              <option value="0">All</option>
-              <option value="4">4.0+</option>
-              <option value="5">5.0+</option>
-              <option value="6">6.0+</option>
-              <option value="7">7.0+</option>
-            </select>
-          </label>
           <button id="export-csv" class="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700">
             Export CSV
           </button>
@@ -200,8 +201,9 @@
                 <th class="px-4 py-2 text-left text-sm font-medium text-gray-700 dark:text-gray-300 cursor-pointer" data-sort="date">Date ↕</th>
                 <th class="px-4 py-2 text-left text-sm font-medium text-gray-700 dark:text-gray-300 cursor-pointer" data-sort="title">Title ↕</th>
                 <th class="px-4 py-2 text-left text-sm font-medium text-gray-700 dark:text-gray-300">Category</th>
+                <th class="px-4 py-2 text-left text-sm font-medium text-gray-700 dark:text-gray-300">Source</th>
                 <th class="px-4 py-2 text-left text-sm font-medium text-gray-700 dark:text-gray-300">Region</th>
-                <th class="px-4 py-2 text-left text-sm font-medium text-gray-700 dark:text-gray-300">Magnitude</th>
+                <th class="px-4 py-2 text-left text-sm font-medium text-gray-700 dark:text-gray-300">Magnitude/Severity</th>
                 <th class="px-4 py-2 text-left text-sm font-medium text-gray-700 dark:text-gray-300">Status</th>
                 <th class="px-4 py-2 text-left text-sm font-medium text-gray-700 dark:text-gray-300">News</th>
               </tr>
@@ -341,6 +343,28 @@
           </div>
         </div>
       </div>
+
+      <!-- Kitty Modal (for mental health breaks) -->
+      <div id="kitty-modal" class="hidden fixed inset-0 bg-black bg-opacity-90 flex items-center justify-center z-50 p-4">
+        <div class="bg-white dark:bg-dark-card rounded-lg shadow-lg max-w-lg w-full p-4">
+          <div class="flex justify-between items-center mb-4">
+            <h2 class="text-lg font-bold dark:text-white">Take a moment 🐱</h2>
+            <button id="close-kitty-modal" class="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-white text-2xl">&times;</button>
+          </div>
+          <div id="kitty-content" class="text-center">
+            <img id="kitty-image" src="" alt="Kitty" class="max-h-96 mx-auto rounded-lg shadow" />
+            <p class="mt-4 text-sm text-gray-500 dark:text-gray-400">Sometimes we all need a moment. Take care of yourself! 💙</p>
+          </div>
+          <button id="new-kitty-btn" class="mt-4 w-full bg-purple-600 text-white px-4 py-2 rounded hover:bg-purple-700">
+            Show me another kitty
+          </button>
+        </div>
+      </div>
+
+      <!-- Subtle footer -->
+      <footer class="mt-8 pb-4 text-center text-xs text-gray-400 dark:text-gray-500">
+        <button id="footer-kitty-btn" class="hover:text-purple-400 transition-colors">🐱 Need a moment?</button>
+      </footer>
     </div>
   </div>
 
@@ -379,6 +403,13 @@
       landslides: '#84cc16'
     };
 
+    // Source colors
+    const SOURCE_COLORS = {
+      nasa: '#3b82f6',    // Blue
+      fema: '#8b5cf6',   // Purple
+      nws: '#f59e0b'     // Orange/Yellow
+    };
+
     // App state
     let events = [];
     let filteredEvents = [];
@@ -386,13 +417,27 @@
     let map = null;
     let markersLayer = null;
     let femaOverlayLayer = null;
+    let regionHighlightLayer = null;
     let currentView = 'map';
     let autoRefreshInterval = null;
     let selectedEvent = null;
     let newsCache = {};
     let femaOverlayEnabled = false;
     let nwsAlerts = [];
-    let magnitudeFilter = 0;
+
+    // More accurate FEMA region bounds (approximate polygons)
+    const FEMA_REGION_BOUNDS = {
+      1: [[41.0, -73.5], [47.5, -66.5]],   // New England
+      2: [[32.0, -75.5], [45.5, -71.5]],   // NY/NJ
+      3: [[36.5, -83.5], [42.5, -74.5]],   // Mid-Atlantic
+      4: [[24.0, -90.5], [42.0, -75.0]],   // Southeast
+      5: [[36.0, -91.5], [49.0, -84.0]],   // Great Lakes
+      6: [[25.5, -106.5], [37.0, -89.0]],  // South Central
+      7: [[36.0, -102.5], [43.5, -90.0]],  // Midwest
+      8: [[37.0, -112.5], [49.0, -100.0]], // Mountain
+      9: [[-15.0, -180.0], [42.5, -105.0]], // West
+      10: [[42.0, -180.0], [71.5, -110.0]]  // Pacific NW
+    };
 
     // NWS Alert severity colors
     const NWS_SEVERITY_COLORS = {
@@ -769,6 +814,7 @@
     const categoryFilter = document.getElementById('category-filter');
     const dateFilter = document.getElementById('date-filter');
     const statusFilter = document.getElementById('status-filter');
+    const sourceFilter = document.getElementById('source-filter');
     const searchFilter = document.getElementById('search-filter');
     const loadingEl = document.getElementById('loading');
     const mapView = document.getElementById('map-view');
@@ -878,18 +924,68 @@
       const category = categoryFilter.value;
       const dateRange = dateFilter.value;
       const status = statusFilter.value;
+      const source = sourceFilter.value;
       const search = searchFilter.value.toLowerCase();
-      magnitudeFilter = parseFloat(document.getElementById('magnitude-filter').value) || 0;
 
-      filteredEvents = events.filter(event => {
-        // Region filter
-        if (region && event.region !== parseInt(region)) return false;
+      // Combine all events
+      let allEvents = [...events];
+      
+      // Add FEMA declarations as events
+      if (femaDeclarations.length > 0) {
+        femaDeclarations.forEach(d => {
+          const stateCenter = STATE_CENTERS[d.state];
+          allEvents.push({
+            id: d.femaDeclarationString,
+            title: `${d.incidentType || d.declarationType} - ${d.state}`,
+            category: d.declarationType === 'FM' ? 'wildfires' : 'severeStorms',
+            categoryTitle: d.declarationType === 'DR' ? 'Disaster Declaration' : d.declarationType === 'EM' ? 'Emergency' : 'Fire Management',
+            date: d.declarationDate,
+            status: 'open',
+            region: d.femaRegion || STATE_TO_FEMA_REGION[d.state],
+            lat: stateCenter ? stateCenter.lat : null,
+            lon: stateCenter ? stateCenter.lon : null,
+            source: 'fema',
+            description: d.designatedArea
+          });
+        });
+      }
+      
+      // Add NWS alerts as events
+      if (nwsAlerts.length > 0) {
+        nwsAlerts.forEach(a => {
+          const stateMatch = a.areaDesc ? a.areaDesc.split(';')[0].trim() : null;
+          const stateCode = Object.keys(STATE_CENTERS).find(s => stateMatch && stateMatch.includes(s));
+          const stateCenter = stateCode ? STATE_CENTERS[stateCode] : null;
+          
+          allEvents.push({
+            id: a.id,
+            title: a.event || a.headline || 'Weather Alert',
+            category: 'severeStorms',
+            categoryTitle: a.event || 'Weather Alert',
+            date: a.effective || new Date().toISOString(),
+            status: 'open',
+            region: stateCode ? STATE_TO_FEMA_REGION[stateCode] : null,
+            lat: stateCenter ? stateCenter.lat : null,
+            lon: stateCenter ? stateCenter.lon : null,
+            source: 'nws',
+            severity: a.severity,
+            description: a.areaDesc
+          });
+        });
+      }
+
+      filteredEvents = allEvents.filter(event => {
+        // Source filter
+        if (source !== 'all' && event.source !== source) return false;
+        
+        // Region filter (only for NASA events which have region mapped)
+        if (region && event.source === 'nasa' && event.region !== parseInt(region)) return false;
         
         // Category filter
         if (category && event.category !== category) return false;
         
         // Date filter
-        if (dateRange !== 'all') {
+        if (dateRange !== 'all' && event.date) {
           const eventDate = new Date(event.date);
           const now = new Date();
           const daysAgo = parseInt(dateRange);
@@ -901,11 +997,10 @@
         if (status !== 'all' && event.status !== status) return false;
         
         // Search filter
-        if (search && !event.title.toLowerCase().includes(search)) return false;
-
-        // Magnitude filter (for earthquakes)
-        if (magnitudeFilter > 0 && event.magnitude) {
-          if (parseFloat(event.magnitude) < magnitudeFilter) return false;
+        if (search) {
+          const titleMatch = event.title ? event.title.toLowerCase().includes(search) : false;
+          const descMatch = event.description ? event.description.toLowerCase().includes(search) : false;
+          if (!titleMatch && !descMatch) return false;
         }
         
         return true;
@@ -934,12 +1029,14 @@
         active: filteredEvents.filter(e => e.status === 'open').length,
         closed: filteredEvents.filter(e => e.status === 'closed').length,
         regions: {},
-        categories: {}
+        categories: {},
+        sources: {}
       };
 
       filteredEvents.forEach(event => {
         stats.regions[event.region] = (stats.regions[event.region] || 0) + 1;
         stats.categories[event.category] = (stats.categories[event.category] || 0) + 1;
+        stats.sources[event.source] = (stats.sources[event.source] || 0) + 1;
       });
 
       const categoryLabels = {
@@ -953,10 +1050,16 @@
         landslides: 'Landslides'
       };
 
+      const sourceLabels = {
+        nasa: 'NASA Events',
+        fema: 'FEMA Declarations',
+        nws: 'NWS Alerts'
+      };
+
       const categoryOrder = ['wildfires', 'severeStorms', 'floods', 'earthquakes', 'volcanoes', 'snow', 'drought', 'landslides'];
       const topCategories = categoryOrder
         .filter(cat => stats.categories[cat])
-        .slice(0, 5);
+        .slice(0, 4);
 
       const categoryCards = topCategories.map(cat => `
         <div class="bg-white dark:bg-dark-card rounded-lg shadow p-4 cursor-pointer hover:bg-gray-50 dark:hover:bg-dark-border" onclick="filterByCategory('${cat}')">
@@ -965,8 +1068,15 @@
         </div>
       `).join('');
 
+      const sourceCards = Object.entries(stats.sources).map(([source, count]) => `
+        <div class="bg-white dark:bg-dark-card rounded-lg shadow p-4 cursor-pointer hover:bg-gray-50 dark:hover:bg-dark-border" onclick="filterBySource('${source}')">
+          <div class="text-3xl font-bold" style="color: ${SOURCE_COLORS[source]}">${count}</div>
+          <div class="text-sm text-gray-600 dark:text-gray-400">${sourceLabels[source] || source}</div>
+        </div>
+      `).join('');
+
       dashboardStats.innerHTML = `
-        <div class="bg-white dark:bg-dark-card rounded-lg shadow p-4 cursor-pointer hover:bg-gray-50 dark:hover:bg-dark-border" onclick="filterByCategory('all')">
+        <div class="bg-white dark:bg-dark-card rounded-lg shadow p-4 cursor-pointer hover:bg-gray-50 dark:hover:bg-dark-border" onclick="filterBySource('all')">
           <div class="text-3xl font-bold text-blue-600">${stats.total}</div>
           <div class="text-sm text-gray-600 dark:text-gray-400">Total Events</div>
         </div>
@@ -978,8 +1088,18 @@
           <div class="text-3xl font-bold text-gray-600">${stats.closed}</div>
           <div class="text-sm text-gray-600 dark:text-gray-400">Closed</div>
         </div>
-        ${categoryCards}
+        ${sourceCards}
       `;
+    }
+
+    function filterBySource(source) {
+      if (source === 'all') {
+        sourceFilter.value = 'all';
+      } else {
+        sourceFilter.value = source;
+      }
+      applyFilters();
+      switchView('list');
     }
 
     // Initialize map
@@ -1024,11 +1144,35 @@
       }
 
       markersLayer.clearLayers();
+      
+      // Clear and recreate region highlight
+      if (regionHighlightLayer) {
+        map.removeLayer(regionHighlightLayer);
+        regionHighlightLayer = null;
+      }
+      
+      const selectedRegion = regionFilter.value;
+      if (selectedRegion && FEMA_REGION_BOUNDS[selectedRegion]) {
+        const bounds = FEMA_REGION_BOUNDS[selectedRegion];
+        const regionName = FEMA_REGIONS[selectedRegion].name;
+        
+        // Create a rectangle for the region
+        regionHighlightLayer = L.rectangle(bounds, {
+          color: '#3b82f6',
+          weight: 3,
+          fillColor: '#3b82f6',
+          fillOpacity: 0.15,
+          dashArray: '5, 5'
+        }).addTo(map);
+        
+        map.fitBounds(bounds);
+      }
 
       filteredEvents.forEach(event => {
         if (!event.lat || !event.lon) return;
 
-        const color = CATEGORY_COLORS[event.category] || '#6b7280';
+        // Use source color, fallback to category color
+        const color = SOURCE_COLORS[event.source] || CATEGORY_COLORS[event.category] || '#6b7280';
         
         const icon = L.divIcon({
           className: 'event-marker',
@@ -1039,18 +1183,25 @@
 
         const marker = L.marker([event.lat, event.lon], { icon });
         
+        const sourceLabel = event.source === 'nasa' ? 'NASA EONET' : event.source === 'fema' ? 'FEMA Declaration' : 'NWS Alert';
+        const regionName = FEMA_REGIONS[event.region]?.name || 'Unknown Region';
+        
         const popupContent = `
           <div class="p-2">
             <h3 class="font-bold text-sm">${event.title}</h3>
-            <p class="text-xs text-gray-600">${FEMA_REGIONS[event.region]?.name || 'Unknown Region'}</p>
+            <p class="text-xs text-gray-600">${regionName}</p>
             <p class="text-xs">${event.categoryTitle}</p>
-            ${event.magnitude ? `<p class="text-xs font-bold">${event.magnitude} ${event.magnitudeUnit}</p>` : ''}
+            <p class="text-xs font-medium">Source: ${sourceLabel}</p>
+            ${event.source === 'nasa' && event.magnitude ? `<p class="text-xs font-bold">Magnitude: ${event.magnitude} ${event.magnitudeUnit}</p>` : ''}
+            ${event.source === 'nws' && event.severity ? `<p class="text-xs font-bold">Severity: ${event.severity}</p>` : ''}
             <p class="text-xs">Status: ${event.status}</p>
-            <p class="text-xs">${new Date(event.date).toLocaleDateString()}</p>
+            <p class="text-xs">${event.date ? new Date(event.date).toLocaleDateString() : '-'}</p>
+            ${event.source === 'nasa' ? `
               <div class="flex gap-2 mt-2">
               <button onclick="focusEventOnMap(${event.lat}, ${event.lon})" class="text-xs bg-blue-600 text-white px-2 py-1 rounded hover:bg-blue-700">Map</button>
               <button onclick="showEventNewsByTitle('${event.title.replace(/'/g, "\\'")}')" class="text-xs bg-green-600 text-white px-2 py-1 rounded hover:bg-green-700">News</button>
             </div>
+            ` : ''}
           </div>
         `;
         
@@ -1061,27 +1212,34 @@
 
     // Update list view
     function updateList() {
-      eventsTableBody.innerHTML = filteredEvents.map(event => `
+      eventsTableBody.innerHTML = filteredEvents.map(event => {
+        const color = SOURCE_COLORS[event.source] || CATEGORY_COLORS[event.category] || '#6b7280';
+        const sourceLabel = event.source === 'nasa' ? 'NASA' : event.source === 'fema' ? 'FEMA' : event.source === 'nws' ? 'NWS' : '-';
+        
+        return `
         <tr class="border-b dark:border-dark-border hover:bg-gray-50 dark:hover:bg-dark-border cursor-pointer" onclick="focusEventOnMap(${event.lat}, ${event.lon})">
-          <td class="px-4 py-2 text-sm dark:text-gray-300">${new Date(event.date).toLocaleDateString()}</td>
+          <td class="px-4 py-2 text-sm dark:text-gray-300">${event.date ? new Date(event.date).toLocaleDateString() : '-'}</td>
           <td class="px-4 py-2 text-sm font-medium dark:text-white">${event.title}</td>
           <td class="px-4 py-2 text-sm">
-            <span class="px-2 py-1 rounded text-xs text-white" style="background-color: ${CATEGORY_COLORS[event.category] || '#6b7280'}">
+            <span class="px-2 py-1 rounded text-xs text-white" style="background-color: ${color}">
               ${event.categoryTitle}
             </span>
           </td>
-          <td class="px-4 py-2 text-sm dark:text-gray-300">${FEMA_REGIONS[event.region]?.name || 'Unknown'}</td>
-          <td class="px-4 py-2 text-sm dark:text-gray-300">${event.magnitude ? `${event.magnitude} ${event.magnitudeUnit}` : '-'}</td>
+          <td class="px-4 py-2 text-sm dark:text-gray-300">${sourceLabel}</td>
+          <td class="px-4 py-2 text-sm dark:text-gray-300">${FEMA_REGIONS[event.region]?.name || '-'}</td>
+          <td class="px-4 py-2 text-sm dark:text-gray-300">${event.source === 'nasa' && event.magnitude ? `${event.magnitude}` : event.severity || '-'}</td>
           <td class="px-4 py-2 text-sm">
             <span class="px-2 py-1 rounded text-xs ${event.status === 'open' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}">
               ${event.status}
             </span>
           </td>
+          ${event.source === 'nasa' ? `
           <td class="px-4 py-2 text-sm">
             <button onclick="event.stopPropagation(); showEventNewsByTitle('${event.title.replace(/'/g, "\\'")}')" class="text-xs bg-green-600 text-white px-2 py-1 rounded hover:bg-green-700">News</button>
           </td>
+          ` : '<td class="px-4 py-2 text-sm">-</td>'}
         </tr>
-      `).join('');
+      `}).join('');
     }
 
     // Update dashboard view
@@ -1200,7 +1358,7 @@
       const articles = await fetchNewsForEvent(event.title);
       
       if (articles.length === 0) {
-        contentEl.innerHTML = '<p class="text-center text-gray-500 dark:text-gray-400 p-4">No news articles found for this event.<br><small>Check console (F12) for details</small></p>';
+        contentEl.innerHTML = '<p class="text-center text-gray-500 dark:text-gray-400 p-4">No news articles found for this event.</p>';
         return;
       }
       
@@ -1232,7 +1390,7 @@
       const articles = await fetchNewsForEvent(title);
       
       if (articles.length === 0) {
-        contentEl.innerHTML = '<p class="text-center text-gray-500 dark:text-gray-400 p-4">No news articles found for this event.<br><small>Check console (F12) for details</small></p>';
+        contentEl.innerHTML = '<p class="text-center text-gray-500 dark:text-gray-400 p-4">No news articles found for this event.</p>';
         return;
       }
       
@@ -1376,10 +1534,16 @@
     }
 
     // Event listeners
-    regionFilter.addEventListener('change', applyFilters);
+    regionFilter.addEventListener('change', () => {
+      applyFilters();
+      if (currentView === 'map' && map) {
+        updateMap();
+      }
+    });
     categoryFilter.addEventListener('change', applyFilters);
     dateFilter.addEventListener('change', applyFilters);
     statusFilter.addEventListener('change', applyFilters);
+    sourceFilter.addEventListener('change', applyFilters);
     searchFilter.addEventListener('input', applyFilters);
 
     document.getElementById('view-map').addEventListener('click', () => switchView('map'));
@@ -1399,7 +1563,6 @@
     });
 
     document.getElementById('fema-overlay-toggle').addEventListener('change', toggleFemaOverlay);
-    document.getElementById('magnitude-filter').addEventListener('change', applyFilters);
 
     document.getElementById('export-csv').addEventListener('click', exportCSV);
     document.getElementById('export-json').addEventListener('click', exportJSON);
@@ -1460,8 +1623,34 @@
       }
     });
 
+    // Kitty modal handlers
+    document.getElementById('footer-kitty-btn').addEventListener('click', showKitty);
+    document.getElementById('close-kitty-modal').addEventListener('click', closeKittyModal);
+    document.getElementById('kitty-modal').addEventListener('click', (e) => {
+      if (e.target.id === 'kitty-modal') {
+        closeKittyModal();
+      }
+    });
+    document.getElementById('new-kitty-btn').addEventListener('click', showKitty);
+
+    function showKitty() {
+      const modal = document.getElementById('kitty-modal');
+      const img = document.getElementById('kitty-image');
+      
+      // Add random query to prevent caching
+      const random = Math.floor(Math.random() * 1000);
+      img.src = `https://cataas.com/cat?width=500&height=400&nocache=${random}`;
+      modal.classList.remove('hidden');
+    }
+
+    function closeKittyModal() {
+      document.getElementById('kitty-modal').classList.add('hidden');
+    }
+
     // Initialize
     fetchEvents();
+    fetchFemaDeclarations();
+    fetchNwsAlerts();
     switchView('map');
   </script>
 </body>
