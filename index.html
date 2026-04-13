@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>FEMA Region Natural Events Dashboard</title>
+  <title>Regional Emerging Events Dashboard</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
     tailwind.config = {
@@ -45,12 +45,12 @@
     <!-- Header -->
     <header class="bg-blue-900 dark:bg-dark-card text-white p-4 shadow-lg">
       <div class="container mx-auto flex justify-between items-center">
-        <h1 class="text-2xl font-bold">FEMA Region Natural Events Dashboard</h1>
+        <h1 class="text-2xl font-bold">Regional Emerging Events Dashboard</h1>
         <div class="flex items-center gap-4">
           <button id="dark-mode-toggle" class="bg-gray-600 hover:bg-gray-500 px-3 py-1 rounded text-sm">
             Dark Mode
           </button>
-          <button id="api-key-btn" title="Get free API key at newsapi.org" class="bg-purple-600 hover:bg-purple-500 px-3 py-1 rounded text-sm">
+          <button id="api-key-btn" title="Get free API key at gnews.io" class="bg-purple-600 hover:bg-purple-500 px-3 py-1 rounded text-sm">
             Set News API
           </button>
           <span id="last-updated" class="text-sm text-blue-200"></span>
@@ -629,11 +629,12 @@
 
     // News API functions
     function getNewsApiKey() {
-      const apiKey = localStorage.getItem('newsApiKey');
+      const apiKey = localStorage.getItem('gnewsApiKey');
       return apiKey || null;
     }
-    const NEWS_API_BASE = 'https://newsapi.org/v2/everything';
-
+    const GNEWS_API_BASE = 'https://gnews.io/api/v4/search';
+    const CORS_PROXY = 'https://api.allorigins.win/raw?url=';
+ 
     async function fetchNewsForEvent(eventTitle) {
       const apiKey = getNewsApiKey();
       if (!apiKey) {
@@ -645,12 +646,38 @@
         return newsCache[cacheKey];
       }
 
-      const searchTerm = eventTitle.split(',')[0].split(' - ')[0].trim();
+      // Extract key search terms from event title
+      // Handle various event title formats
+      let searchTerm = eventTitle;
+      
+      // Remove common prefixes and location info
+      searchTerm = searchTerm.replace(/^(rx|Rx| RX)\s+/i, ''); // Remove prescribed fire prefix
+      searchTerm = searchTerm.split(',')[0]; // Take first part before location
+      searchTerm = searchTerm.split(' - ')[0]; // Take first part before dash
+      searchTerm = searchTerm.replace(/\s+\d{4,}/g, ''); // Remove year numbers at end
+      searchTerm = searchTerm.replace(/(wildfire|prescribed fire|fire)/gi, ''); // Remove fire-related words
+      searchTerm = searchTerm.trim();
+      
+      // If search term is too short or empty, use original
+      if (searchTerm.length < 3) {
+        searchTerm = eventTitle.split(',')[0].split(' - ')[0].trim();
+      }
+      
       const query = encodeURIComponent(searchTerm);
       
       try {
-        const response = await fetch(`${NEWS_API_BASE}?q=${query}&sortBy=publishedAt&pageSize=10&apiKey=${apiKey}`);
+        const url = `${GNEWS_API_BASE}?q=${query}&lang=en&max=10&apikey=${apiKey}`;
+        console.log('Fetching news with query:', searchTerm);
+        
+        const response = await fetch(CORS_PROXY + encodeURIComponent(url));
+        
+        if (!response.ok) {
+          console.error('Response not ok:', response.status, response.statusText);
+          return [];
+        }
+        
         const data = await response.json();
+        console.log('News data received:', data);
         
         if (data.articles) {
           newsCache[cacheKey] = data.articles;
@@ -677,7 +704,7 @@
       const articles = await fetchNewsForEvent(event.title);
       
       if (articles.length === 0) {
-        contentEl.innerHTML = '<p class="text-center text-gray-500 dark:text-gray-400 p-4">No news articles found for this event.</p>';
+        contentEl.innerHTML = '<p class="text-center text-gray-500 dark:text-gray-400 p-4">No news articles found for this event.<br><small>Check console (F12) for details</small></p>';
         return;
       }
       
@@ -709,7 +736,7 @@
       const articles = await fetchNewsForEvent(title);
       
       if (articles.length === 0) {
-        contentEl.innerHTML = '<p class="text-center text-gray-500 dark:text-gray-400 p-4">No news articles found for this event.</p>';
+        contentEl.innerHTML = '<p class="text-center text-gray-500 dark:text-gray-400 p-4">No news articles found for this event.<br><small>Check console (F12) for details</small></p>';
         return;
       }
       
@@ -867,10 +894,10 @@
 
     // API key button
     document.getElementById('api-key-btn').addEventListener('click', () => {
-      const currentKey = localStorage.getItem('newsApiKey') || '';
-      const newKey = prompt('Enter your NewsAPI.org API key:\n\nGet a free key at https://newsapi.org', currentKey);
+      const currentKey = localStorage.getItem('gnewsApiKey') || '';
+      const newKey = prompt('Enter your GNews API key:\n\nGet a free key at https://gnews.io', currentKey);
       if (newKey !== null && newKey.trim() !== '') {
-        localStorage.setItem('newsApiKey', newKey.trim());
+        localStorage.setItem('gnewsApiKey', newKey.trim());
         alert('API key saved!');
       }
     });

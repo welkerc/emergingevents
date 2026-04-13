@@ -1,4 +1,4 @@
-# FEMA Region Natural Events Dashboard
+# Regional Emerging Events Dashboard
 
 A web-based dashboard for viewing natural disaster events from NASA's EONET API, organized by US FEMA regions.
 
@@ -10,7 +10,8 @@ A web-based dashboard for viewing natural disaster events from NASA's EONET API,
 - **Map Tiles**: CartoDB (dark/light themes)
 - **APIs**:
   - NASA EONET API (`https://eonet.gsfc.nasa.gov/api/v3/events`)
-  - NewsAPI.org (`https://newsapi.org/v2/everything`)
+  - GNews API (`https://gnews.io/api/v4/search`)
+  - CORS Proxy: AllOrigins (`https://api.allorigins.win/raw?url=`)
 
 ## Features
 
@@ -31,11 +32,11 @@ A web-based dashboard for viewing natural disaster events from NASA's EONET API,
 
 1. Open `index.html` in a web browser
 2. The app will automatically fetch events from NASA's EONET API
-3. Click "Set News API" to configure your NewsAPI.org key (free at https://newsapi.org)
+3. Click "Set News API" to configure your GNews API key (free at https://gnews.io)
 
 ## News API Setup
 
-1. Get a free API key from https://newsapi.org
+1. Get a free API key from https://gnews.io
 2. Click "Set News API" button in the header
 3. Enter your API key when prompted
 4. The key is saved in your browser's localStorage
@@ -71,4 +72,4 @@ The app uses browser localStorage to persist:
 ## API Rate Limits
 
 - **NASA EONET**: No documented rate limit (free, public API)
-- **NewsAPI.org**: 100 requests/day (free tier)
+- **GNews API**: 100 requests/day (free tier)
