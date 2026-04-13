@@ -50,7 +50,7 @@
           <button id="dark-mode-toggle" class="bg-gray-600 hover:bg-gray-500 px-3 py-1 rounded text-sm">
             Dark Mode
           </button>
-          <button id="api-key-btn" class="bg-purple-600 hover:bg-purple-500 px-3 py-1 rounded text-sm">
+          <button id="api-key-btn" title="Get free API key at newsapi.org" class="bg-purple-600 hover:bg-purple-500 px-3 py-1 rounded text-sm">
             Set News API
           </button>
           <span id="last-updated" class="text-sm text-blue-200"></span>
@@ -868,9 +868,9 @@
     // API key button
     document.getElementById('api-key-btn').addEventListener('click', () => {
       const currentKey = localStorage.getItem('newsApiKey') || '';
-      const newKey = prompt('Enter your NewsAPI.org API key:', currentKey);
-      if (newKey !== null) {
-        localStorage.setItem('newsApiKey', newKey);
+      const newKey = prompt('Enter your NewsAPI.org API key:\n\nGet a free key at https://newsapi.org', currentKey);
+      if (newKey !== null && newKey.trim() !== '') {
+        localStorage.setItem('newsApiKey', newKey.trim());
         alert('API key saved!');
       }
     });
