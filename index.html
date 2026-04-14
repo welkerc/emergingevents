@@ -140,6 +140,14 @@
             </select>
           </div>
 
+          <!-- Hide Prescribed Fires -->
+          <div class="flex items-center">
+            <label class="flex items-center gap-2 text-sm dark:text-white cursor-pointer mt-6">
+              <input type="checkbox" id="hide-prescribed-fires" class="w-4 h-4">
+              Hide Prescribed Fires
+            </label>
+          </div>
+
           <!-- Search -->
           <div>
             <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Search</label>
@@ -926,6 +934,7 @@
       const status = statusFilter.value;
       const source = sourceFilter.value;
       const search = searchFilter.value.toLowerCase();
+      const hidePrescribedFires = document.getElementById('hide-prescribed-fires').checked;
 
       // Combine all events
       let allEvents = [...events];
@@ -1002,6 +1011,9 @@
           const descMatch = event.description ? event.description.toLowerCase().includes(search) : false;
           if (!titleMatch && !descMatch) return false;
         }
+        
+        // Hide Prescribed Fires filter
+        if (hidePrescribedFires && event.title && event.title.toLowerCase().includes('prescribed')) return false;
         
         return true;
       });
@@ -1549,6 +1561,7 @@
     dateFilter.addEventListener('change', applyFilters);
     statusFilter.addEventListener('change', applyFilters);
     sourceFilter.addEventListener('change', applyFilters);
+    document.getElementById('hide-prescribed-fires').addEventListener('change', applyFilters);
     searchFilter.addEventListener('input', applyFilters);
 
     document.getElementById('view-map').addEventListener('click', () => switchView('map'));
